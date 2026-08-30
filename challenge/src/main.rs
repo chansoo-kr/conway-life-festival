@@ -15,8 +15,9 @@ use conway_core::{
         SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, TEXT_COLOR, TutorialPage, UiFont,
-        button_with, hud_text, panel, set_text, tutorial_closed,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, StepGoal, TEXT_COLOR, Tutorial,
+        TutorialFinished, TutorialStep, UiFont, button_with, hud_text, intro_closed, panel,
+        set_text, tutorial_inactive,
     },
 };
 
@@ -180,7 +181,13 @@ fn main() -> AppExit {
                 left_margin: LEFT_PANEL_W,
                 top_margin: 0.0,
             },
-            FestivalUiPlugin::new(tutorial_pages()).open_at_start(true),
+            FestivalUiPlugin::new(
+                "실시간 모양 맞추기",
+                "30분마다 바뀌는 목표 모양을, 실시간으로 계속 진화하는 격자 위에 최대한 빨리 만들어 내는 \
+                 타임 어택 모드입니다. 내가 그린 셀도 규칙대로 변하니 진화를 피하거나 이용해야 합니다.",
+                tutorial_steps(),
+            )
+            .with_rules(""),
             debug::ScreenshotPlugin {
                 name: "challenge".into(),
             },
@@ -198,51 +205,17 @@ fn main() -> AppExit {
             Update,
             (
                 poll_round,
-                keyboard_shortcuts.run_if(tutorial_closed),
+                keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
+                on_tutorial_finished,
                 check_match,
-                sync_tool,
+                sync_tool.run_if(tutorial_inactive),
                 update_hud,
             )
                 .chain()
                 .after(SimSet),
         )
         .run()
-}
-
-fn tutorial_pages() -> Vec<TutorialPage> {
-    vec![
-        TutorialPage::new(
-            "실시간 모양 맞추기",
-            "왼쪽의 '목표 모양'을 오른쪽 격자 위에 똑같이 만들어 내는 게임입니다. 위치는 상관없습니다.\n\n\
-             단, 격자는 멈춰 있지 않습니다! '시작'을 누르는 순간부터 생명 게임 규칙이 실시간으로 돌아가\n\
-             내가 그린 셀도 계속 태어나고 죽습니다. 그 흐름을 피하거나 이용해서\n\
-             목표와 같은 모양이 격자에 나타나는 순간을 만드세요. 그 순간 자동으로 판정됩니다.",
-        ),
-        TutorialPage::new(
-            "생명 게임 규칙",
-            "매 세대마다 모든 셀이 동시에 바뀝니다.\n\
-             • 살아있는 셀: 이웃(주변 8칸)이 2개 또는 3개면 살아남고, 아니면 죽습니다.\n\
-             • 죽은 셀: 이웃이 정확히 3개면 새로 태어납니다.\n\n\
-             혼자 떨어진 셀 1~2개는 다음 세대에 사라지고, 셀 3개가 일렬이면 깜빡이가 됩니다.\n\
-             블록·벌집 같은 '정지 패턴'은 완성만 하면 그대로 유지되지만, 완성 직전의 반쪽짜리 모양이\n\
-             먼저 무너질 수 있으니 순서를 궁리해야 합니다.",
-        ),
-        TutorialPage::new(
-            "진행 방법",
-            "1. '시작'(Space)을 누르면 타이머와 시뮬레이션이 함께 출발합니다.\n\
-             2. 왼쪽 클릭/드래그로 셀을 살리고, 오른쪽 클릭으로 지웁니다. 드래그가 빠릅니다!\n\
-             3. 엉망이 됐으면 '지우기'(C)로 전부 비우고 다시 그립니다 (타이머는 계속 갑니다).\n\
-             4. 격자 위 살아있는 셀 전체가 목표와 같아지는 순간 '성공!'과 함께 기록이 남습니다.\n\n\
-             패널의 '세대' 숫자가 오르는 리듬을 보고, 다음 세대 직후에 마지막 셀을 넣는 것이 요령입니다.",
-        ),
-        TutorialPage::new(
-            "라운드와 난이도",
-            "문제는 30분마다 바뀝니다. 패널 아래에 다음 문제까지 남은 시간이 보입니다.\n\
-             이번 라운드 최고 기록 5개가 왼쪽에 남고, '다시 도전'으로 몇 번이고 기록에 도전할 수 있습니다.\n\n\
-             진행 요원용: [ 와 ] 키로 시뮬레이션 속도(세대/초)를 바꿔 난이도를 조절할 수 있습니다.",
-        ),
-    ]
 }
 
 fn setup_ui(mut commands: Commands, font: Res<UiFont>, challenge: Res<Challenge>) {
@@ -434,10 +407,12 @@ fn handle_actions(
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
     mut reset: MessageWriter<ResetGrid>,
+    mut tutorial: ResMut<Tutorial>,
 ) {
     for action in reader.read() {
         match action {
             Action::Start => {
+                tutorial.complete("start");
                 reset.write(ResetGrid::empty(&grid));
                 speed.rate = challenge.rate;
                 control.paused = false;
@@ -446,6 +421,7 @@ fn handle_actions(
                 };
             }
             Action::Clear => {
+                tutorial.complete("clear");
                 if matches!(challenge.phase, Phase::Playing { .. }) {
                     reset.write(ResetGrid::empty(&grid));
                 }
@@ -516,6 +492,21 @@ fn check_match(
         .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     challenge.best.truncate(MAX_BEST);
     info!("클리어! {elapsed:.2}초 (세대 {})", generation.0);
+}
+
+fn on_tutorial_finished(
+    mut finished: MessageReader<TutorialFinished>,
+    grid: Res<GridSize>,
+    mut challenge: ResMut<Challenge>,
+    mut control: ResMut<SimControl>,
+    mut reset: MessageWriter<ResetGrid>,
+) {
+    if finished.read().last().is_none() {
+        return;
+    }
+    challenge.phase = Phase::Idle;
+    control.paused = true;
+    reset.write(ResetGrid::empty(&grid));
 }
 
 fn sync_tool(challenge: Res<Challenge>, mut tool: ResMut<PaintTool>) {
@@ -596,4 +587,38 @@ fn update_hud(
             }
         }
     }
+}
+
+fn tutorial_steps() -> Vec<TutorialStep> {
+    vec![
+        TutorialStep::new(
+            "목표 모양 확인",
+            "왼쪽 패널의 '목표 모양'이 이번 라운드의 문제입니다. 격자 어디든 이 모양과 똑같은 모양(살아있는 셀 전체)을 만들면 성공입니다.\n\
+             문제는 30분마다 바뀌고, 패널 아래에 다음 문제까지 남은 시간이 표시됩니다.",
+            StepGoal::Info,
+        ),
+        TutorialStep::new(
+            "라운드 시작",
+            "'시작' 버튼(또는 Space)을 눌러 보세요. 타이머와 함께 시뮬레이션이 실시간으로 돌아가기 시작합니다.",
+            StepGoal::Custom("start"),
+        ),
+        TutorialStep::new(
+            "진화하는 격자에 그리기",
+            "격자에 셀을 5개 그려 보세요. 그린 셀이 규칙대로 태어나고 죽는 것을 보세요.\n\
+             혼자 떨어진 셀은 다음 세대에 사라지고, 셀 3개가 일렬이면 깜빡이가 됩니다. 패널의 '세대' 숫자가 오르는 리듬을 눈여겨 두세요.",
+            StepGoal::PaintCells(5),
+        ),
+        TutorialStep::new(
+            "지우고 다시",
+            "엉망이 됐으면 '지우기'(C)로 격자를 비울 수 있습니다. 타이머는 계속 갑니다. 한 번 눌러 보세요.",
+            StepGoal::Custom("clear"),
+        ),
+        TutorialStep::new(
+            "판정과 기록",
+            "격자 위 살아있는 셀 전체가 목표와 같아지는 순간 자동으로 판정되어 기록이 남고, 그 순간의 격자가 고정됩니다.\n\
+             정지 패턴은 완성 순서를, 움직이는 패턴은 완성되는 순간을 노리세요. 진행 요원은 [ ] 키로 속도(난이도)를 바꿀 수 있습니다.\n\
+             튜토리얼을 마치면 라운드가 처음 상태로 돌아갑니다. 행운을 빕니다!",
+            StepGoal::Info,
+        ),
+    ]
 }

@@ -9,6 +9,11 @@ use crate::{grid::GridSize, sim::GridView};
 #[derive(Component)]
 pub struct MainCamera;
 
+#[derive(Resource, Default, Clone, Copy, Debug)]
+pub struct CameraActivity {
+    pub zoomed: bool,
+}
+
 #[derive(Resource, Clone, Debug)]
 pub struct CameraControl {
     pub zoom: bool,
@@ -102,10 +107,12 @@ pub fn zoom_at_cursor(
     scroll: Res<AccumulatedMouseScroll>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
+    mut activity: ResMut<CameraActivity>,
 ) {
     if !control.zoom || scroll.delta.y == 0.0 {
         return;
     }
+    activity.zoomed = true;
     let (mut transform, mut projection) = camera.into_inner();
     let Projection::Orthographic(o) = &mut *projection else {
         return;
@@ -173,6 +180,7 @@ pub struct CameraControlPlugin;
 impl Plugin for CameraControlPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraControl>()
+            .init_resource::<CameraActivity>()
             .add_systems(Update, (zoom_at_cursor, pan_camera));
     }
 }

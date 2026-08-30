@@ -13,8 +13,9 @@ use conway_core::{
         SimConfig, SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, TEXT_COLOR, TutorialPage,
-        UiFont, button_styled, button_with, hud_text, panel, set_text, tutorial_closed,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, StepGoal, TEXT_COLOR,
+        Tutorial, TutorialFinished, TutorialStep, UiFont, button_styled, button_with, hud_text,
+        intro_closed, panel, set_text,
     },
 };
 
@@ -162,7 +163,13 @@ fn main() -> AppExit {
                 left_margin: LEFT_PANEL_W,
                 top_margin: TOP_BAR_H,
             },
-            FestivalUiPlugin::new(tutorial_pages()).open_at_start(true),
+            FestivalUiPlugin::new(
+                "1 vs 1 대전",
+                "두 사람이 차례로 자기 진영에 생명을 배치한 뒤, 600세대 동안 벌어지는 생존 경쟁에서 \
+                 더 많은 셀을 남기는 쪽이 이기는 대전 모드입니다. 새로 태어나는 셀은 부모의 다수 색을 따릅니다.",
+                tutorial_steps(),
+            )
+            .with_rules("왼쪽 초록 진영 안에서 "),
             debug::ScreenshotPlugin {
                 name: "battle".into(),
             },
@@ -188,7 +195,8 @@ fn main() -> AppExit {
         .add_systems(
             Update,
             (
-                keyboard_shortcuts.run_if(tutorial_closed),
+                keyboard_shortcuts.run_if(intro_closed),
+                on_tutorial_finished,
                 handle_actions,
                 handle_paint,
                 tick_phase,
@@ -222,51 +230,6 @@ fn selftest() -> debug::SelfTest {
             (blinker, IVec2::new(80, 10), 0),
         ],
     }
-}
-
-fn tutorial_pages() -> Vec<TutorialPage> {
-    vec![
-        TutorialPage::new(
-            "1 vs 1 대전",
-            "두 플레이어가 각자 자기 진영에 생명을 배치하고, 600세대 동안 벌어지는 생존 경쟁에서\n\
-             더 많은 셀을 남기는 쪽이 이깁니다.\n\n\
-             • 플레이어 1 (초록) : 왼쪽 절반\n\
-             • 플레이어 2 (주황) : 오른쪽 절반\n\n\
-             격자의 가장자리는 반대편과 이어져 있어, 오른쪽 끝을 넘어간 것은 왼쪽 끝으로 나옵니다!",
-        ),
-        TutorialPage::new(
-            "규칙: Immigration Game",
-            "기본 규칙은 콘웨이의 생명 게임과 같습니다.\n\
-             • 살아있는 셀은 이웃(8칸)이 2~3개면 살아남고, 아니면 죽습니다.\n\
-             • 죽은 셀은 이웃이 정확히 3개면 태어납니다.\n\n\
-             여기에 색이 더해집니다. 새로 태어나는 셀은 부모 3개 중 더 많은 색을 따릅니다.\n\
-             (초록 2 + 주황 1 → 초록) 상대의 구조물에 내 셀을 섞어 넣어 색을 빼앗으세요!",
-        ),
-        TutorialPage::new(
-            "배치 단계",
-            "플레이어 1부터 순서대로 60초 동안 배치합니다. (Enter 또는 '준비 완료'로 조기 종료)\n\n\
-             • 셀 예산은 60개. 왼쪽 클릭으로 놓고 오른쪽 클릭으로 되돌립니다.\n\
-             • 자기 진영 안에만 놓을 수 있습니다.\n\
-             • 왼쪽 무기고에서 완성된 패턴을 골라 클릭 한 번에 찍을 수 있습니다.\n\
-             • 숫자 키 1~8 로 무기고 선택, H / V 로 좌우·상하 반전.",
-        ),
-        TutorialPage::new(
-            "무기고 활용 팁",
-            "• 글라이더 (5셀) : 대각선으로 날아가 상대 구조물을 교란\n\
-             • 우주선 (9~11셀) : 가로로 곧장 돌진\n\
-             • R-펜토미노 (5셀), 도토리 (7셀) : 작지만 오래도록 폭발적으로 성장\n\
-             • 펄서 (48셀) : 튼튼한 진동 요새\n\
-             • 글라이더 건 (36셀) : 글라이더를 끝없이 발사 — 예산의 절반 이상!\n\n\
-             플레이어 2의 스탬프는 자동으로 좌우 반전되어 왼쪽을 향합니다.",
-        ),
-        TutorialPage::new(
-            "전투와 결과",
-            "두 플레이어가 준비되면 전투가 시작됩니다. 상단 점수 바로 실시간 셀 수를 확인하세요.\n\
-             기다리기 지루하면 '빨리 감기'(F)!\n\n\
-             600세대가 지난 뒤 살아있는 셀이 더 많은 쪽이 승리합니다.\n\
-             '다시 시작'으로 새 경기를 시작하세요. 행운을 빕니다!",
-        ),
-    ]
 }
 
 fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
@@ -571,11 +534,13 @@ fn handle_actions(
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
     mut reset: MessageWriter<ResetGrid>,
+    mut tutorial: ResMut<Tutorial>,
 ) {
     let now = time.elapsed_secs_f64();
     for action in reader.read() {
         match action {
             Action::Ready => {
+                tutorial.complete("ready");
                 if matches!(battle.phase, Phase::Setup { .. }) {
                     advance_setup(&mut battle, now, &mut control, &mut speed);
                 }
@@ -690,6 +655,15 @@ fn handle_paint(
     }
 }
 
+fn on_tutorial_finished(
+    mut finished: MessageReader<TutorialFinished>,
+    mut actions: MessageWriter<Action>,
+) {
+    if finished.read().last().is_some() {
+        actions.write(Action::Restart);
+    }
+}
+
 fn tick_phase(
     time: Res<Time>,
     grid: Res<GridSize>,
@@ -704,7 +678,7 @@ fn tick_phase(
     match battle.phase {
         Phase::Setup { player, deadline } => {
             if deadline == f64::MAX {
-                if !tutorial.open {
+                if !tutorial.is_showing() {
                     battle.phase = Phase::Setup {
                         player,
                         deadline: now + SETUP_SECS,
@@ -962,4 +936,43 @@ fn update_hud(
             *visibility = v;
         }
     }
+}
+
+fn tutorial_steps() -> Vec<TutorialStep> {
+    vec![
+        TutorialStep::new(
+            "진영과 예산",
+            "왼쪽 절반은 플레이어 1(초록), 오른쪽 절반은 플레이어 2(주황)의 진영입니다. 각자 60초 동안 60셀 예산으로 자기 진영에만 생명을 놓습니다.\n\
+             상단에 남은 시간과 예산이 표시됩니다.",
+            StepGoal::Info,
+        ),
+        TutorialStep::new(
+            "직접 배치",
+            "왼쪽 초록 진영 안에 셀 5개를 놓아 보세요. 오른쪽 클릭으로 되돌리면 예산이 돌아옵니다. 상대 진영에는 놓을 수 없습니다.",
+            StepGoal::PaintCells(5),
+        ),
+        TutorialStep::new(
+            "무기고 사용",
+            "왼쪽 무기고에서 '글라이더'(숫자 키 2)를 고르고 초록 진영을 클릭해 찍어 보세요. H / V 키로 방향을 뒤집을 수 있습니다.\n\
+             플레이어 2의 스탬프는 자동으로 좌우 반전되어 왼쪽을 향합니다.",
+            StepGoal::Stamp(1),
+        ),
+        TutorialStep::new(
+            "준비 완료",
+            "배치가 끝나면 '준비 완료'(Enter)로 차례를 넘깁니다. 지금 눌러 보세요. 플레이어 2 차례가 되고, 한 번 더 누르면 전투가 시작됩니다.",
+            StepGoal::Custom("ready"),
+        ),
+        TutorialStep::new(
+            "전투와 색 다수결",
+            "'준비 완료'를 한 번 더 눌러 전투를 시작하고, 30세대가 지나는 것을 지켜보세요.\n\
+             새로 태어나는 셀은 부모 3개 중 더 많은 색을 따릅니다(초록 2 + 주황 1 → 초록). 왼쪽 점수 바가 실시간 셀 수입니다.",
+            StepGoal::Generations(30),
+        ),
+        TutorialStep::new(
+            "승패",
+            "600세대가 지나면 살아남은 셀이 많은 쪽이 이깁니다. 'F'로 빨리 감기, 결과 후 'R'로 다시 시작합니다.\n\
+             격자 가장자리는 반대편과 이어져 있으니 뒤에서 오는 글라이더도 조심하세요. 튜토리얼을 마치면 새 경기가 시작됩니다.",
+            StepGoal::Info,
+        ),
+    ]
 }

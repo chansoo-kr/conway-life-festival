@@ -1,4 +1,11 @@
-use bevy::{prelude::*, text::FontCx};
+use bevy::{platform::collections::HashSet, prelude::*, text::FontCx};
+
+use crate::{
+    camera::CameraActivity,
+    grid::GridSize,
+    paint::{PaintMode, PaintRequest, PaintSet, PaintTool},
+    sim::{Generation, ResetGrid, SimControl, SimSet},
+};
 
 #[derive(Resource, Clone)]
 pub struct UiFont(pub FontSource);
@@ -198,65 +205,215 @@ fn button_colors(
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct TutorialPage {
-    pub title: String,
-    pub body: String,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepGoal {
+    Info,
+    PaintCells(u32),
+    EraseCells(u32),
+    Stamp(u32),
+    Generations(u64),
+    Zoom,
+    Custom(&'static str),
 }
 
-impl TutorialPage {
-    pub fn new(title: impl Into<String>, body: impl Into<String>) -> Self {
+#[derive(Clone, Debug)]
+pub struct TutorialStep {
+    pub section: String,
+    pub title: String,
+    pub body: String,
+    pub goal: StepGoal,
+}
+
+impl TutorialStep {
+    pub fn new(title: impl Into<String>, body: impl Into<String>, goal: StepGoal) -> Self {
         Self {
+            section: String::new(),
             title: title.into(),
             body: body.into(),
+            goal,
         }
     }
+
+    fn with_section(mut self, section: &str) -> Self {
+        self.section = section.into();
+        self
+    }
+}
+
+pub fn common_rule_steps(paint_hint: &str) -> Vec<TutorialStep> {
+    vec![
+        TutorialStep::new(
+            "격자와 셀",
+            "격자의 칸 하나가 '셀'입니다. 셀은 살아있거나(밝은 색) 죽어 있고(어두운 색),\n\
+             시간은 '세대' 단위로 흘러 매 세대 모든 셀이 동시에 바뀝니다.\n\
+             셀의 운명은 주변 8칸(이웃) 중 몇 개가 살아있는지로만 정해집니다.\n\n\
+             직접 해 보면서 익혀 봅시다. '다음'을 누르세요.",
+            StepGoal::Info,
+        ),
+        TutorialStep::new(
+            "셀 살리기",
+            format!(
+                "{paint_hint}격자를 왼쪽 클릭해서 셀 3개를 살려 보세요. 드래그하면 여러 칸을 한 번에 칠할 수 있습니다."
+            ),
+            StepGoal::PaintCells(3),
+        ),
+        TutorialStep::new(
+            "셀 지우기",
+            "이번에는 오른쪽 클릭으로 살아있는 셀 하나를 지워 보세요.",
+            StepGoal::EraseCells(1),
+        ),
+        TutorialStep::new(
+            "깜빡이 만들기",
+            format!(
+                "{paint_hint}빈 자리에 가로로 나란히 셀 3개를 그려 보세요. 이 모양의 이름은 '깜빡이'입니다."
+            ),
+            StepGoal::PaintCells(3),
+        ),
+        TutorialStep::new(
+            "한 세대 진행",
+            "아래 '한 세대' 버튼을 눌러 시간을 한 칸 진행시켜 보세요.\n\
+             양 끝 셀은 이웃이 1개뿐이라 죽고(고독), 가운데 셀의 위아래는 이웃이 정확히 3개라 새로 태어납니다.\n\
+             그래서 가로 셋이 세로 셋으로 바뀝니다.",
+            StepGoal::Generations(1),
+        ),
+        TutorialStep::new(
+            "세 가지 규칙",
+            "'재생'을 눌러 계속 진행시켜 보세요. 깜빡이가 2세대마다 같은 모양으로 돌아옵니다.\n\n\
+             1. 살아있는 셀은 이웃이 2개 또는 3개면 살아남습니다.\n\
+             2. 이웃이 1개 이하거나 4개 이상이면 죽습니다.\n\
+             3. 죽은 셀은 이웃이 정확히 3개면 태어납니다.\n\
+             이 셋이 규칙의 전부입니다.",
+            StepGoal::Generations(10),
+        ),
+    ]
+}
+
+#[derive(Default, Clone, Debug)]
+struct StepProgress {
+    painted: u32,
+    erased: u32,
+    stamped: u32,
+    generation_start: u64,
+    zoomed: bool,
+    custom: HashSet<&'static str>,
+    done_at: Option<f64>,
 }
 
 #[derive(Resource, Clone, Debug)]
 pub struct Tutorial {
-    pub pages: Vec<TutorialPage>,
-    pub open: bool,
-    pub page: usize,
-    pub open_at_start: bool,
+    pub mode_name: String,
+    pub mode_description: String,
+    pub steps: Vec<TutorialStep>,
+    pub intro_open: bool,
+    pub active: bool,
+    pub step: usize,
+    progress: StepProgress,
+    saved_control: Option<SimControl>,
 }
 
+#[derive(Message, Clone, Copy, Debug)]
+pub struct TutorialFinished;
+
 impl Tutorial {
-    pub fn new(pages: Vec<TutorialPage>) -> Self {
+    pub fn new(
+        mode_name: impl Into<String>,
+        mode_description: impl Into<String>,
+        steps: Vec<TutorialStep>,
+    ) -> Self {
         Self {
-            pages,
-            open: false,
-            page: 0,
-            open_at_start: false,
+            mode_name: mode_name.into(),
+            mode_description: mode_description.into(),
+            steps,
+            intro_open: true,
+            active: false,
+            step: 0,
+            progress: StepProgress::default(),
+            saved_control: None,
         }
+    }
+
+    pub fn is_showing(&self) -> bool {
+        self.intro_open || self.active
+    }
+
+    pub fn dismiss(&mut self) {
+        self.intro_open = false;
+        self.active = false;
+    }
+
+    pub fn start(&mut self) {
+        self.intro_open = false;
+        self.active = true;
+        self.step = 0;
+        self.progress = StepProgress::default();
     }
 
     pub fn toggle(&mut self) {
-        self.open = !self.open;
-        if self.open {
-            self.page = 0;
-        }
-    }
-
-    pub fn next(&mut self) {
-        if self.page + 1 < self.pages.len() {
-            self.page += 1;
+        if self.active {
+            self.active = false;
         } else {
-            self.open = false;
+            self.start();
         }
     }
 
-    pub fn prev(&mut self) {
-        self.page = self.page.saturating_sub(1);
+    pub fn complete(&mut self, id: &'static str) {
+        if self.active {
+            self.progress.custom.insert(id);
+        }
+    }
+
+    pub fn current(&self) -> Option<&TutorialStep> {
+        self.active.then(|| self.steps.get(self.step)).flatten()
+    }
+
+    fn goal_status(&self, generation: u64) -> (bool, String) {
+        let p = &self.progress;
+        match self.current().map(|s| &s.goal) {
+            Some(StepGoal::Info) => (true, String::new()),
+            Some(StepGoal::PaintCells(n)) => {
+                (p.painted >= *n, format!("{}/{n} 셀", p.painted.min(*n)))
+            }
+            Some(StepGoal::EraseCells(n)) => {
+                (p.erased >= *n, format!("{}/{n} 셀", p.erased.min(*n)))
+            }
+            Some(StepGoal::Stamp(n)) => (p.stamped >= *n, format!("{}/{n} 회", p.stamped.min(*n))),
+            Some(StepGoal::Generations(n)) => {
+                let g = generation.saturating_sub(p.generation_start);
+                (g >= *n, format!("{}/{n} 세대", g.min(*n)))
+            }
+            Some(StepGoal::Zoom) => (p.zoomed, String::new()),
+            Some(StepGoal::Custom(id)) => (p.custom.contains(id), String::new()),
+            None => (false, String::new()),
+        }
+    }
+
+    fn advance(&mut self, generation: u64) -> bool {
+        self.step += 1;
+        self.progress = StepProgress {
+            generation_start: generation,
+            ..default()
+        };
+        if self.step >= self.steps.len() {
+            self.active = false;
+            return true;
+        }
+        false
     }
 }
 
-pub fn tutorial_closed(tutorial: Res<Tutorial>) -> bool {
-    !tutorial.open
+pub fn intro_closed(tutorial: Res<Tutorial>) -> bool {
+    !tutorial.intro_open
+}
+
+pub fn tutorial_inactive(tutorial: Res<Tutorial>) -> bool {
+    !tutorial.is_showing()
 }
 
 #[derive(Component)]
 struct TutorialOverlay;
+
+#[derive(Component)]
+struct TutorialButton;
 
 fn spawn_tutorial_button(mut commands: Commands, font: Res<UiFont>) {
     commands
@@ -278,131 +435,349 @@ fn spawn_tutorial_button(mut commands: Commands, font: Res<UiFont>) {
         });
 }
 
-#[derive(Component)]
-struct TutorialButton;
-
 fn tutorial_keys(keys: Res<ButtonInput<KeyCode>>, mut tutorial: ResMut<Tutorial>) {
+    if tutorial.intro_open {
+        if keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::KeyY) {
+            tutorial.start();
+        } else if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::KeyN) {
+            tutorial.dismiss();
+        }
+        return;
+    }
     if keys.just_pressed(KeyCode::KeyT) {
         tutorial.toggle();
     }
-    if !tutorial.open {
+}
+
+fn begin_tutorial(
+    tutorial: &mut Tutorial,
+    grid: &GridSize,
+    control: &mut SimControl,
+    tool: &mut PaintTool,
+    generation: u64,
+    reset: &mut MessageWriter<ResetGrid>,
+) {
+    tutorial.saved_control = Some(*control);
+    tutorial.progress.generation_start = generation;
+    control.paused = true;
+    control.step_once = false;
+    tool.enabled = true;
+    tool.mode = PaintMode::Pen;
+    reset.write(ResetGrid::empty(grid));
+}
+
+fn end_tutorial(
+    tutorial: &mut Tutorial,
+    grid: &GridSize,
+    control: &mut SimControl,
+    reset: &mut MessageWriter<ResetGrid>,
+    finished: &mut MessageWriter<TutorialFinished>,
+) {
+    if let Some(saved) = tutorial.saved_control.take() {
+        control.paused = saved.paused;
+    }
+    reset.write(ResetGrid::empty(grid));
+    finished.write(TutorialFinished);
+}
+
+fn track_tutorial(
+    time: Res<Time>,
+    grid: Res<GridSize>,
+    generation: Res<Generation>,
+    activity: Res<CameraActivity>,
+    mut tutorial: ResMut<Tutorial>,
+    mut control: ResMut<SimControl>,
+    mut tool: ResMut<PaintTool>,
+    mut paints: MessageReader<PaintRequest>,
+    mut reset: MessageWriter<ResetGrid>,
+    mut finished: MessageWriter<TutorialFinished>,
+    mut was_active: Local<bool>,
+) {
+    let active = tutorial.active;
+    if active && !*was_active {
+        begin_tutorial(
+            &mut tutorial,
+            &grid,
+            &mut control,
+            &mut tool,
+            generation.0,
+            &mut reset,
+        );
+    } else if !active && *was_active {
+        end_tutorial(
+            &mut tutorial,
+            &grid,
+            &mut control,
+            &mut reset,
+            &mut finished,
+        );
+    }
+    *was_active = active;
+    if !active {
+        paints.clear();
         return;
     }
-    if keys.just_pressed(KeyCode::Escape) {
-        tutorial.open = false;
+
+    let mut painted = 0u32;
+    let mut erased = 0u32;
+    let mut stamped = 0u32;
+    for req in paints.read() {
+        if req.stamp {
+            stamped += 1;
+        } else if req.alive {
+            painted += req.cells.len() as u32;
+        } else {
+            erased += req.cells.len() as u32;
+        }
     }
-    if keys.just_pressed(KeyCode::ArrowRight) || keys.just_pressed(KeyCode::Space) {
-        tutorial.next();
+    let zoomed = activity.zoomed;
+    if painted + erased + stamped > 0 || (zoomed && !tutorial.progress.zoomed) {
+        let p = &mut tutorial.progress;
+        p.painted += painted;
+        p.erased += erased;
+        p.stamped += stamped;
+        p.zoomed |= zoomed;
     }
-    if keys.just_pressed(KeyCode::ArrowLeft) {
-        tutorial.prev();
+
+    let (met, _) = tutorial.goal_status(generation.0);
+    let is_info = matches!(tutorial.current().map(|s| &s.goal), Some(StepGoal::Info));
+    let now = time.elapsed_secs_f64();
+    match (met && !is_info, tutorial.progress.done_at) {
+        (true, None) => tutorial.progress.done_at = Some(now),
+        (true, Some(t)) if now - t >= 1.2 && tutorial.advance(generation.0) => {
+            end_tutorial(
+                &mut tutorial,
+                &grid,
+                &mut control,
+                &mut reset,
+                &mut finished,
+            );
+            *was_active = false;
+        }
+        _ => {}
     }
 }
 
-fn open_at_start(mut tutorial: ResMut<Tutorial>) {
-    if tutorial.open_at_start {
-        tutorial.open = true;
-        tutorial.page = 0;
-    }
+fn overlay_root(modal: bool) -> impl Bundle {
+    (
+        TutorialOverlay,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            width: percent(100),
+            height: percent(100),
+            justify_content: JustifyContent::Center,
+            align_items: if modal {
+                AlignItems::Center
+            } else {
+                AlignItems::FlexEnd
+            },
+            padding: UiRect::bottom(px(70)),
+            ..default()
+        },
+        BackgroundColor(if modal {
+            Color::srgba(0.0, 0.0, 0.0, 0.62)
+        } else {
+            Color::NONE
+        }),
+        Pickable {
+            should_block_lower: modal,
+            is_hoverable: modal,
+        },
+        GlobalZIndex(100),
+    )
+}
+
+fn card(width: f32) -> impl Bundle {
+    (
+        Node {
+            width: px(width),
+            max_width: percent(92),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(px(24)),
+            row_gap: px(12),
+            border: UiRect::all(px(1)),
+            border_radius: BorderRadius::all(px(14)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.11, 0.12, 0.16, 0.96)),
+        BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.15)),
+        Interaction::None,
+    )
+}
+
+fn body_text(font: &UiFont, s: String, size: f32) -> impl Bundle {
+    (
+        hud_text(font, s, size, TEXT_COLOR),
+        TextLayout::linebreak(LineBreak::WordOrCharacter),
+        Node {
+            max_width: percent(100),
+            ..default()
+        },
+    )
+}
+
+fn spawn_intro(commands: &mut Commands, tutorial: &Tutorial, font: &UiFont) {
+    commands.spawn(overlay_root(true)).with_children(|root| {
+        root.spawn(card(720.0)).with_children(|card| {
+            card.spawn(hud_text(font, "생명 게임 축제", 15.0, MUTED_COLOR));
+            card.spawn(hud_text(font, tutorial.mode_name.clone(), 32.0, ACCENT));
+            card.spawn(body_text(font, tutorial.mode_description.clone(), 19.0));
+            card.spawn(hud_text(
+                font,
+                "튜토리얼 모드를 하시겠습니까?\n직접 클릭하고 조작하면서 1. 생명 게임 규칙 → 2. 이 모드의 규칙 순서로 배웁니다.",
+                19.0,
+                TEXT_COLOR,
+            ));
+            card.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                column_gap: px(10),
+                margin: UiRect::top(px(8)),
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(button_with(
+                    font,
+                    "예, 튜토리얼 시작 (Enter)",
+                    18.0,
+                    ButtonColors::accent(),
+                ))
+                .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.start());
+                row.spawn(button(font, "아니요, 바로 시작 (Esc)", 18.0))
+                    .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.dismiss());
+            });
+        });
+    });
+}
+
+fn spawn_step_card(commands: &mut Commands, tutorial: &Tutorial, font: &UiFont, generation: u64) {
+    let Some(step) = tutorial.current() else {
+        return;
+    };
+    let (met, progress) = tutorial.goal_status(generation);
+    let is_info = step.goal == StepGoal::Info;
+    let show_sim_controls = matches!(step.goal, StepGoal::Generations(_));
+    let total = tutorial.steps.len();
+    let index = tutorial.step;
+    commands.spawn(overlay_root(false)).with_children(|root| {
+        root.spawn(card(760.0)).with_children(|card| {
+            card.spawn(hud_text(
+                font,
+                format!("튜토리얼  ·  {}  ({}/{total})", step.section, index + 1),
+                14.0,
+                MUTED_COLOR,
+            ));
+            card.spawn(hud_text(font, step.title.clone(), 24.0, ACCENT));
+            card.spawn(body_text(font, step.body.clone(), 17.0));
+            card.spawn(Node {
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                column_gap: px(8),
+                ..default()
+            })
+            .with_children(|row| {
+                row.spawn(Node {
+                    column_gap: px(8),
+                    align_items: AlignItems::Center,
+                    ..default()
+                })
+                .with_children(|left| {
+                    if show_sim_controls {
+                        left.spawn(button(font, "한 세대", 16.0)).observe(
+                            |_: On<Pointer<Click>>, mut c: ResMut<SimControl>| {
+                                c.paused = true;
+                                c.step_once = true;
+                            },
+                        );
+                        left.spawn(button(font, "재생 / 정지", 16.0)).observe(
+                            |_: On<Pointer<Click>>, mut c: ResMut<SimControl>| {
+                                c.paused = !c.paused;
+                            },
+                        );
+                    }
+                    let status = if is_info {
+                        String::new()
+                    } else if met {
+                        "완료! 잠시 후 다음 단계로 넘어갑니다".into()
+                    } else if progress.is_empty() {
+                        "진행 중…".into()
+                    } else {
+                        format!("진행 {progress}")
+                    };
+                    left.spawn(hud_text(
+                        font,
+                        status,
+                        16.0,
+                        if met { ACCENT } else { MUTED_COLOR },
+                    ));
+                });
+                row.spawn(Node {
+                    column_gap: px(8),
+                    ..default()
+                })
+                .with_children(|right| {
+                    right
+                        .spawn(button_with(
+                            font,
+                            if is_info { "다음" } else { "건너뛰기" },
+                            16.0,
+                            if is_info {
+                                ButtonColors::accent()
+                            } else {
+                                ButtonColors::default()
+                            },
+                        ))
+                        .observe(
+                            |_: On<Pointer<Click>>,
+                             mut t: ResMut<Tutorial>,
+                             g: Res<Generation>,
+                             grid: Res<GridSize>,
+                             mut c: ResMut<SimControl>,
+                             mut reset: MessageWriter<ResetGrid>,
+                             mut finished: MessageWriter<TutorialFinished>| {
+                                if t.advance(g.0) {
+                                    end_tutorial(&mut t, &grid, &mut c, &mut reset, &mut finished);
+                                }
+                            },
+                        );
+                    right
+                        .spawn(button(font, "종료", 16.0))
+                        .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.active = false);
+                });
+            });
+        });
+    });
 }
 
 fn sync_tutorial_overlay(
     mut commands: Commands,
     tutorial: Res<Tutorial>,
+    generation: Res<Generation>,
     font: Res<UiFont>,
     existing: Query<Entity, With<TutorialOverlay>>,
+    mut last: Local<Option<(bool, bool, usize, String)>>,
 ) {
-    if !tutorial.is_changed() {
+    let (met, progress) = tutorial.goal_status(generation.0);
+    let key = (
+        tutorial.intro_open,
+        tutorial.active,
+        tutorial.step,
+        format!("{met}{progress}"),
+    );
+    if !tutorial.is_changed() && last.as_ref() == Some(&key) {
         return;
     }
+    *last = Some(key);
     for e in &existing {
         commands.entity(e).despawn();
     }
-    if !tutorial.open || tutorial.pages.is_empty() {
-        return;
+    if tutorial.intro_open {
+        spawn_intro(&mut commands, &tutorial, &font);
+    } else if tutorial.active {
+        spawn_step_card(&mut commands, &tutorial, &font, generation.0);
     }
-    let page = tutorial.page.min(tutorial.pages.len() - 1);
-    let p = &tutorial.pages[page];
-    let is_last = page + 1 >= tutorial.pages.len();
-
-    commands
-        .spawn((
-            TutorialOverlay,
-            Node {
-                position_type: PositionType::Absolute,
-                left: px(0),
-                top: px(0),
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.62)),
-            Interaction::None,
-            GlobalZIndex(100),
-        ))
-        .with_children(|root| {
-            root.spawn((
-                Node {
-                    width: px(720),
-                    max_width: percent(92),
-                    flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(px(28)),
-                    row_gap: px(16),
-                    border: UiRect::all(px(1)),
-                    border_radius: BorderRadius::all(px(14)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.11, 0.12, 0.16)),
-                BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.15)),
-                Interaction::None,
-            ))
-            .with_children(|card| {
-                card.spawn(hud_text(
-                    &font,
-                    format!("튜토리얼  {}/{}", page + 1, tutorial.pages.len()),
-                    15.0,
-                    MUTED_COLOR,
-                ));
-                card.spawn(hud_text(&font, p.title.clone(), 30.0, ACCENT));
-                card.spawn((
-                    hud_text(&font, p.body.clone(), 19.0, TEXT_COLOR),
-                    TextLayout::linebreak(LineBreak::WordOrCharacter),
-                    Node {
-                        max_width: percent(100),
-                        ..default()
-                    },
-                ));
-                card.spawn(Node {
-                    flex_direction: FlexDirection::Row,
-                    justify_content: JustifyContent::SpaceBetween,
-                    margin: UiRect::top(px(8)),
-                    ..default()
-                })
-                .with_children(|row| {
-                    row.spawn(Node {
-                        column_gap: px(8),
-                        ..default()
-                    })
-                    .with_children(|left| {
-                        if page > 0 {
-                            left.spawn(button(&font, "이전", 18.0))
-                                .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.prev());
-                        }
-                        left.spawn(button_with(
-                            &font,
-                            if is_last { "완료" } else { "다음" },
-                            18.0,
-                            ButtonColors::accent(),
-                        ))
-                        .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.next());
-                    });
-                    row.spawn(button(&font, "닫기 (Esc)", 18.0))
-                        .observe(|_: On<Pointer<Click>>, mut t: ResMut<Tutorial>| t.open = false);
-                });
-            });
-        });
 }
 
 pub struct FestivalUiPlugin {
@@ -410,14 +785,29 @@ pub struct FestivalUiPlugin {
 }
 
 impl FestivalUiPlugin {
-    pub fn new(pages: Vec<TutorialPage>) -> Self {
+    pub fn new(
+        mode_name: impl Into<String>,
+        mode_description: impl Into<String>,
+        mode_steps: Vec<TutorialStep>,
+    ) -> Self {
+        let mode_name = mode_name.into();
+        let section = format!("2. {mode_name} 규칙");
+        let steps = mode_steps
+            .into_iter()
+            .map(|s| s.with_section(&section))
+            .collect();
         Self {
-            tutorial: Tutorial::new(pages),
+            tutorial: Tutorial::new(mode_name, mode_description, steps),
         }
     }
 
-    pub fn open_at_start(mut self, open: bool) -> Self {
-        self.tutorial.open_at_start = open;
+    pub fn with_rules(mut self, paint_hint: &str) -> Self {
+        let mut steps: Vec<TutorialStep> = common_rule_steps(paint_hint)
+            .into_iter()
+            .map(|s| s.with_section("1. 생명 게임 규칙"))
+            .collect();
+        steps.append(&mut self.tutorial.steps);
+        self.tutorial.steps = steps;
         self
     }
 }
@@ -425,11 +815,19 @@ impl FestivalUiPlugin {
 impl Plugin for FestivalUiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.tutorial.clone())
+            .init_resource::<CameraActivity>()
+            .add_message::<TutorialFinished>()
             .add_systems(PreStartup, pick_ui_font)
-            .add_systems(Startup, (spawn_tutorial_button, open_at_start))
+            .add_systems(Startup, spawn_tutorial_button)
             .add_systems(
                 Update,
-                (button_colors, tutorial_keys, sync_tutorial_overlay).chain(),
+                (
+                    button_colors,
+                    tutorial_keys,
+                    track_tutorial.after(PaintSet).after(SimSet),
+                    sync_tutorial_overlay,
+                )
+                    .chain(),
             );
     }
 }

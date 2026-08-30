@@ -13,8 +13,9 @@ use conway_core::{
         SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, TEXT_COLOR, TutorialPage,
-        UiFont, button_styled, button_with, hud_text, panel, set_text, tutorial_closed,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, StepGoal, TEXT_COLOR,
+        Tutorial, TutorialStep, UiFont, button_styled, button_with, hud_text, intro_closed, panel,
+        set_text,
     },
 };
 
@@ -110,7 +111,13 @@ fn main() -> AppExit {
             }),
             CameraControlPlugin,
             PaintPlugin::default(),
-            FestivalUiPlugin::new(tutorial_pages()).open_at_start(true),
+            FestivalUiPlugin::new(
+                "자유 모드",
+                "격자에 자유롭게 생명을 그리고, 우주선·글라이더 건·시계·컴퓨터 같은 프리셋을 불러와 \
+                 마음껏 관찰하고 실험하는 모드입니다. 정해진 목표는 없습니다.",
+                tutorial_steps(),
+            )
+            .with_rules(""),
             debug::ScreenshotPlugin {
                 name: "free_mode".into(),
             },
@@ -123,7 +130,7 @@ fn main() -> AppExit {
         .add_systems(
             Update,
             (
-                keyboard_shortcuts.run_if(tutorial_closed),
+                keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
                 handle_dropped_rle,
                 update_hud,
@@ -148,53 +155,6 @@ fn selftest() -> debug::SelfTest {
             (blinker, IVec2::new(5100, 3400), 0),
         ],
     }
-}
-
-fn tutorial_pages() -> Vec<TutorialPage> {
-    vec![
-        TutorialPage::new(
-            "콘웨이의 생명 게임이란?",
-            "격자 위의 셀은 '살아있음' 또는 '죽음' 두 상태를 가집니다.\n\
-             매 세대마다 모든 셀이 동시에 다음 규칙을 따릅니다.\n\n\
-             • 살아있는 셀: 이웃(주변 8칸)이 2개 또는 3개면 살아남고, 아니면 죽습니다.\n\
-             • 죽은 셀: 이웃이 정확히 3개면 새로 태어납니다.\n\n\
-             단순한 규칙에서 놀랍도록 복잡한 움직임이 나타납니다. 직접 그려서 확인해 보세요!",
-        ),
-        TutorialPage::new(
-            "그리기",
-            "• 왼쪽 클릭 / 드래그 : 셀 살리기\n\
-             • 오른쪽 클릭 / 드래그 : 셀 지우기\n\
-             • 재생 중에도 그릴 수 있습니다.\n\n\
-             상단의 '지우기'는 전체를 비우고, '랜덤'은 지금 보이는 영역을 무작위로 채웁니다.",
-        ),
-        TutorialPage::new(
-            "재생과 속도",
-            "• 재생 / 정지 : 상단 버튼 또는 Space\n\
-             • 한 세대만 진행 : N 키\n\
-             • 속도 - / + : [ 와 ] 키 (1 ~ 2048 세대/초)\n\n\
-             천천히 보면 규칙이 보이고, 빠르게 돌리면 큰 패턴의 전체 흐름이 보입니다.",
-        ),
-        TutorialPage::new(
-            "프리셋 체험",
-            "왼쪽 목록의 프리셋을 누르면 화면 중앙에 그 패턴이 놓이고 카메라가 맞춰집니다.\n\n\
-             • 정지 패턴 : 변하지 않는 모양 (블록, 벌집 …)\n\
-             • 진동 패턴 : 주기적으로 반복 (깜빡이, 펄서 …)\n\
-             • 이동 패턴 : 우주선처럼 움직임 (글라이더, LWSS …)\n\
-             • 글라이더 건 : 글라이더를 끝없이 발사\n\
-             • 초대형 : 실제 시각을 표시하는 시계, ALU·RAM을 갖춘 8/16비트 컴퓨터, 튜링 머신,\n\
-               소수 계산기, 메모리 테이프 … (빠른 속도로 자동 전환, 휠로 확대해 회로를 살펴보세요)\n\n\
-             프리셋 옆 '스탬프'를 고르면 그리드를 클릭한 자리에 그 패턴을 찍을 수 있습니다.\n\
-             '펜' 버튼(P)으로 다시 그리기 모드로 돌아옵니다.",
-        ),
-        TutorialPage::new(
-            "화면 이동",
-            "• 마우스 휠 : 커서 위치 기준 확대/축소\n\
-             • W A S D / 방향키 또는 가운데 버튼 드래그 : 이동\n\
-             • F : 그리드 전체 보기\n\n\
-             격자는 아주 넓고(16384 x 16384), 가장자리는 반대편과 이어져 있습니다.\n\
-             이제 마음껏 실험해 보세요!",
-        ),
-    ]
 }
 
 fn action_button<'a>(
@@ -443,6 +403,7 @@ fn handle_actions(
     camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     preset_buttons: Query<(Entity, &PresetButton)>,
     pen_button: Query<Entity, With<PenButton>>,
+    mut tutorial: ResMut<Tutorial>,
 ) {
     let (mut cam_tf, mut projection) = camera.into_inner();
     let viewport = Vec2::new(window.width(), window.height());
@@ -491,6 +452,7 @@ fn handle_actions(
                 }
             }
             Action::SpeedUp | Action::SpeedDown => {
+                tutorial.complete("speed");
                 let idx = RATES
                     .iter()
                     .position(|r| (*r - speed.rate).abs() < 0.01)
@@ -519,6 +481,7 @@ fn handle_actions(
                 TOP_BAR_H,
             ),
             Action::LoadPreset(i) => {
+                tutorial.complete("preset");
                 let Some(preset) = presets.0.get(*i) else {
                     continue;
                 };
@@ -651,4 +614,40 @@ fn update_hud(
             }
         }
     }
+}
+
+fn tutorial_steps() -> Vec<TutorialStep> {
+    vec![
+        TutorialStep::new(
+            "프리셋 불러오기",
+            "왼쪽 목록에서 '글라이더 (이동)'을 클릭해 보세요. 격자 중앙에 글라이더가 놓이고 카메라가 맞춰집니다.",
+            StepGoal::Custom("preset"),
+        ),
+        TutorialStep::new(
+            "재생하기",
+            "상단 '재생' 버튼이나 Space 키로 시뮬레이션을 켜 보세요. 글라이더가 대각선으로 날아갑니다.",
+            StepGoal::Generations(20),
+        ),
+        TutorialStep::new(
+            "속도 조절",
+            "'속도 +' 버튼이나 ] 키로 속도를 올려 보세요. [ 키로 다시 늦출 수 있습니다 (1 ~ 2048 세대/초).",
+            StepGoal::Custom("speed"),
+        ),
+        TutorialStep::new(
+            "확대 · 축소",
+            "격자 위에서 마우스 휠을 굴려 확대하거나 축소해 보세요. W A S D 나 가운데 버튼 드래그로 이동하고, F 키로 전체를 봅니다.",
+            StepGoal::Zoom,
+        ),
+        TutorialStep::new(
+            "스탬프 찍기",
+            "프리셋 옆 '스탬프' 버튼을 고른 뒤 격자를 클릭하면 그 자리에 패턴이 찍힙니다. 아무 프리셋이나 하나 찍어 보세요. 'P' 키로 펜 모드로 돌아옵니다.",
+            StepGoal::Stamp(1),
+        ),
+        TutorialStep::new(
+            "초대형 프리셋",
+            "목록 아래쪽에는 시계, ALU·RAM을 갖춘 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 같은 초대형 패턴이 있습니다.\n\
+             불러오면 속도가 자동으로 올라가니, 휠로 확대해 회로 속 글라이더 신호를 구경해 보세요. 이제 자유롭게 실험하세요!",
+            StepGoal::Info,
+        ),
+    ]
 }

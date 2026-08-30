@@ -48,6 +48,18 @@ impl Plugin for ScreenshotPlugin {
                 }
                 match frame.0 {
                     90 => {
+                        let path = format!("{dir}/{name}_intro.png");
+                        info!("스크린샷: {path}");
+                        commands
+                            .spawn(Screenshot::primary_window())
+                            .observe(save_to_disk(path));
+                    }
+                    100 => {
+                        if let Some(mut t) = tutorial {
+                            t.start();
+                        }
+                    }
+                    110 => {
                         let path = format!("{dir}/{name}_tutorial.png");
                         info!("스크린샷: {path}");
                         commands
@@ -56,7 +68,7 @@ impl Plugin for ScreenshotPlugin {
                     }
                     120 => {
                         if let Some(mut t) = tutorial {
-                            t.open = false;
+                            t.dismiss();
                         }
                     }
                     700 => {
@@ -149,7 +161,7 @@ fn run_selftest(
                 return;
             }
             if let Some(mut t) = tutorial {
-                t.open = false;
+                t.dismiss();
             }
             control.paused = true;
             for (pattern, origin, plane) in &state.test.place {
