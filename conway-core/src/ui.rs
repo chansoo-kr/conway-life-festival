@@ -458,6 +458,12 @@ struct TutorialButton;
 #[derive(Message, Clone, Copy, Debug)]
 pub struct SessionReset;
 
+#[derive(Message, Clone, Copy, Debug)]
+pub struct TutorialStarted;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UiSet;
+
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct SessionConfig {
     pub idle_reset_secs: f32,
@@ -593,13 +599,14 @@ fn track_tutorial(
     time: Res<Time>,
     grid: Res<GridSize>,
     generation: Res<Generation>,
-    activity: Res<CameraActivity>,
+    mut activity: ResMut<CameraActivity>,
     mut tutorial: ResMut<Tutorial>,
     mut control: ResMut<SimControl>,
     mut tool: ResMut<PaintTool>,
     mut paints: MessageReader<PaintRequest>,
     mut reset: MessageWriter<ResetGrid>,
     mut finished: MessageWriter<TutorialFinished>,
+    mut started: MessageWriter<TutorialStarted>,
     mut was_active: Local<bool>,
 ) {
     let active = tutorial.active;
@@ -612,6 +619,8 @@ fn track_tutorial(
             generation.0,
             &mut reset,
         );
+        activity.zoomed = false;
+        started.write(TutorialStarted);
     } else if !active && *was_active {
         end_tutorial(
             &mut tutorial,
@@ -627,32 +636,23 @@ fn track_tutorial(
         return;
     }
 
-    let mut painted = 0u32;
-    let mut erased = 0u32;
-    let mut stamped = 0u32;
-    let mut touched: Vec<(IVec2, bool)> = Vec::new();
-    for req in paints.read() {
-        if req.stamp {
-            stamped += 1;
-        } else if req.alive {
-            painted += req.cells.len() as u32;
-        } else {
-            erased += req.cells.len() as u32;
-        }
-        touched.extend(req.cells.iter().map(|c| (*c, req.alive)));
-    }
+    let requests: Vec<PaintRequest> = paints.read().cloned().collect();
     let zoomed = activity.zoomed;
-    if !touched.is_empty() || (zoomed && !tutorial.progress.zoomed) {
+    if !requests.is_empty() || (zoomed && !tutorial.progress.zoomed) {
         let p = &mut tutorial.progress;
-        p.painted += painted;
-        p.erased += erased;
-        p.stamped += stamped;
         p.zoomed |= zoomed;
-        for (cell, alive) in touched {
-            if alive {
-                p.cells.insert(cell);
-            } else {
-                p.cells.remove(&cell);
+        for req in &requests {
+            if req.stamp {
+                p.stamped += 1;
+            }
+            for cell in &req.cells {
+                if req.alive {
+                    if p.cells.insert(*cell) && !req.stamp {
+                        p.painted += 1;
+                    }
+                } else if p.cells.remove(cell) {
+                    p.erased += 1;
+                }
             }
         }
     }
@@ -662,15 +662,9 @@ fn track_tutorial(
     let now = time.elapsed_secs_f64();
     match (met && !is_info, tutorial.progress.done_at) {
         (true, None) => tutorial.progress.done_at = Some(now),
-        (true, Some(t)) if now - t >= 1.2 && tutorial.advance(generation.0) => {
-            end_tutorial(
-                &mut tutorial,
-                &grid,
-                &mut control,
-                &mut reset,
-                &mut finished,
-            );
-            *was_active = false;
+        (true, Some(t)) if now - t >= 1.2 => {
+            tutorial.advance(generation.0);
+            activity.zoomed = false;
         }
         _ => {}
     }
@@ -851,13 +845,9 @@ fn spawn_step_card(commands: &mut Commands, tutorial: &Tutorial, font: &UiFont, 
                             |_: On<Pointer<Click>>,
                              mut t: ResMut<Tutorial>,
                              g: Res<Generation>,
-                             grid: Res<GridSize>,
-                             mut c: ResMut<SimControl>,
-                             mut reset: MessageWriter<ResetGrid>,
-                             mut finished: MessageWriter<TutorialFinished>| {
-                                if t.advance(g.0) {
-                                    end_tutorial(&mut t, &grid, &mut c, &mut reset, &mut finished);
-                                }
+                             mut activity: ResMut<CameraActivity>| {
+                                t.advance(g.0);
+                                activity.zoomed = false;
                             },
                         );
                     right
@@ -946,6 +936,7 @@ impl Plugin for FestivalUiPlugin {
             .init_resource::<IdleClock>()
             .init_resource::<CameraActivity>()
             .add_message::<TutorialFinished>()
+            .add_message::<TutorialStarted>()
             .add_message::<SessionReset>()
             .add_systems(PreStartup, pick_ui_font)
             .add_systems(Startup, spawn_tutorial_button)
@@ -956,10 +947,13 @@ impl Plugin for FestivalUiPlugin {
                     idle_watch,
                     apply_session_reset,
                     tutorial_keys,
-                    track_tutorial.after(PaintSet).after(SimSet),
+                    track_tutorial,
                     sync_tutorial_overlay,
                 )
-                    .chain(),
+                    .chain()
+                    .in_set(UiSet)
+                    .after(PaintSet)
+                    .after(SimSet),
             );
     }
 }

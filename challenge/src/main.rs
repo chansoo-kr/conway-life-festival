@@ -16,8 +16,8 @@ use conway_core::{
     },
     ui::{
         ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, SessionReset, StepGoal, TEXT_COLOR,
-        Tutorial, TutorialFinished, TutorialStep, UiFont, button_with, hud_text, intro_closed,
-        panel, set_text, tutorial_inactive,
+        Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet, button_with,
+        hud_text, intro_closed, panel, set_text, tutorial_inactive,
     },
 };
 
@@ -284,13 +284,14 @@ fn main() -> AppExit {
                 handle_actions,
                 on_tutorial_finished,
                 check_match,
-                tick_limit,
+                tick_limit.run_if(tutorial_inactive),
                 on_session_reset,
                 sync_tool.run_if(tutorial_inactive),
                 update_hud,
             )
                 .chain()
-                .after(SimSet),
+                .after(SimSet)
+                .after(UiSet),
         )
         .run()
 }
@@ -635,18 +636,25 @@ fn on_session_reset(
 }
 
 fn on_tutorial_finished(
+    mut started: MessageReader<TutorialStarted>,
     mut finished: MessageReader<TutorialFinished>,
     grid: Res<GridSize>,
     mut challenge: ResMut<Challenge>,
     mut control: ResMut<SimControl>,
     mut reset: MessageWriter<ResetGrid>,
 ) {
-    if finished.read().last().is_none() {
+    let began = started.read().last().is_some();
+    let ended = finished.read().last().is_some();
+    if !began && !ended {
         return;
     }
     challenge.phase = Phase::Idle;
-    control.paused = true;
-    reset.write(ResetGrid::empty(&grid));
+    challenge.accuracy = 0.0;
+    challenge.best_accuracy = 0.0;
+    if ended {
+        control.paused = true;
+        reset.write(ResetGrid::empty(&grid));
+    }
 }
 
 fn sync_tool(challenge: Res<Challenge>, mut tool: ResMut<PaintTool>) {

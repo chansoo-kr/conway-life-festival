@@ -14,8 +14,8 @@ use conway_core::{
     },
     ui::{
         ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
-        TEXT_COLOR, Tutorial, TutorialStep, UiFont, button_styled, button_with, hud_text,
-        intro_closed, panel, set_text,
+        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet,
+        button_styled, button_with, hud_text, intro_closed, panel, set_text,
     },
 };
 
@@ -149,11 +149,13 @@ fn main() -> AppExit {
                 keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
                 on_session_reset,
+                on_tutorial_events,
                 handle_dropped_rle,
                 update_hud,
             )
                 .chain()
-                .after(SimSet),
+                .after(SimSet)
+                .after(UiSet),
         )
         .run()
 }
@@ -402,6 +404,27 @@ fn on_session_reset(
     }
     for e in &pen_button {
         commands.entity(e).insert(Selected);
+    }
+}
+
+fn on_tutorial_events(
+    mut started: MessageReader<TutorialStarted>,
+    mut finished: MessageReader<TutorialFinished>,
+    initial: Res<InitialState>,
+    grid: Res<GridSize>,
+    mut reset: MessageWriter<ResetGrid>,
+    mut actions: MessageWriter<Action>,
+) {
+    let began = started.read().last().is_some();
+    let ended = finished.read().last().is_some();
+    if ended {
+        reset.write(match &initial.words {
+            Some(words) => ResetGrid(words.clone()),
+            None => ResetGrid::empty(&grid),
+        });
+    }
+    if began || ended {
+        actions.write(Action::Pen);
     }
 }
 

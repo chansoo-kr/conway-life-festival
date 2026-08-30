@@ -14,8 +14,8 @@ use conway_core::{
     },
     ui::{
         ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
-        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStep, UiFont, button_styled, button_with,
-        hud_text, intro_closed, panel, set_text,
+        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet,
+        button_styled, button_with, hud_text, intro_closed, panel, set_text,
     },
 };
 
@@ -131,7 +131,6 @@ enum Hud {
 enum Action {
     Ready,
     Fast,
-    Restart,
     Home,
     Arsenal(usize),
     FlipH,
@@ -211,7 +210,8 @@ fn main() -> AppExit {
             )
                 .chain()
                 .after(SimSet)
-                .after(PaintSet),
+                .after(PaintSet)
+                .after(UiSet),
         )
         .run()
 }
@@ -533,12 +533,10 @@ fn advance_setup(battle: &mut Battle, now: f64, control: &mut SimControl, speed:
 fn handle_actions(
     mut reader: MessageReader<Action>,
     time: Res<Time>,
-    grid: Res<GridSize>,
     arsenal: Res<Arsenal>,
     mut battle: ResMut<Battle>,
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
-    mut reset: MessageWriter<ResetGrid>,
     mut session: MessageWriter<SessionReset>,
     mut tutorial: ResMut<Tutorial>,
 ) {
@@ -562,17 +560,6 @@ fn handle_actions(
                         FAST_RATE
                     };
                 }
-            }
-            Action::Restart => {
-                restart(
-                    &mut battle,
-                    &grid,
-                    &mut control,
-                    &mut speed,
-                    &mut reset,
-                    now + SETUP_SECS,
-                );
-                battle.notify(now, "새 경기! 플레이어 1부터 배치하세요.");
             }
             Action::Arsenal(i) => {
                 if *i < arsenal.0.len() && battle.arsenal != *i {
@@ -705,11 +692,25 @@ fn on_session_reset(
 }
 
 fn on_tutorial_finished(
+    mut started: MessageReader<TutorialStarted>,
     mut finished: MessageReader<TutorialFinished>,
-    mut actions: MessageWriter<Action>,
+    grid: Res<GridSize>,
+    mut battle: ResMut<Battle>,
+    mut control: ResMut<SimControl>,
+    mut speed: ResMut<SimSpeed>,
+    mut reset: MessageWriter<ResetGrid>,
 ) {
-    if finished.read().last().is_some() {
-        actions.write(Action::Restart);
+    let began = started.read().last().is_some();
+    let ended = finished.read().last().is_some();
+    if began || ended {
+        restart(
+            &mut battle,
+            &grid,
+            &mut control,
+            &mut speed,
+            &mut reset,
+            f64::MAX,
+        );
     }
 }
 
@@ -781,7 +782,7 @@ fn tick_phase(
             }
         }
         Phase::Result { at, .. } => {
-            if now - at >= RESULT_SECS {
+            if now - at >= RESULT_SECS && !tutorial.is_showing() {
                 session.write(SessionReset);
             }
         }
