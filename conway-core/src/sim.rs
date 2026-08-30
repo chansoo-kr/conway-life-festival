@@ -335,7 +335,7 @@ fn setup(
     assert_eq!(
         words.len(),
         grid.total_words(),
-        "initial_words 길이가 그리드 크기와 맞지 않습니다"
+        "initial_words length does not match the grid"
     );
     let data = words_to_bytes(&words);
 
@@ -434,7 +434,7 @@ fn apply_reset_grid(
     };
     if reset.0.len() != grid.total_words() {
         error!(
-            "ResetGrid 길이 불일치: {} != {}",
+            "ResetGrid length mismatch: {} != {}",
             reset.0.len(),
             grid.total_words()
         );
@@ -745,7 +745,7 @@ fn update_state(
             CachedPipelineState::Ok(_) => {}
             CachedPipelineState::Err(ShaderCacheError::ShaderNotLoaded(_)) => all_ok = false,
             CachedPipelineState::Err(err) => {
-                panic!("컴퓨트 파이프라인 '{name}' 초기화 실패:\n{err}")
+                panic!("failed to create compute pipeline '{name}':\n{err}")
             }
             _ => all_ok = false,
         }

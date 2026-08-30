@@ -49,7 +49,7 @@ impl Plugin for ScreenshotPlugin {
                 match frame.0 {
                     90 => {
                         let path = format!("{dir}/{name}_intro.png");
-                        info!("스크린샷: {path}");
+                        info!("screenshot: {path}");
                         commands
                             .spawn(Screenshot::primary_window())
                             .observe(save_to_disk(path));
@@ -61,7 +61,7 @@ impl Plugin for ScreenshotPlugin {
                     }
                     110 => {
                         let path = format!("{dir}/{name}_tutorial.png");
-                        info!("스크린샷: {path}");
+                        info!("screenshot: {path}");
                         commands
                             .spawn(Screenshot::primary_window())
                             .observe(save_to_disk(path));
@@ -73,7 +73,7 @@ impl Plugin for ScreenshotPlugin {
                     }
                     700 => {
                         let path = format!("{dir}/{name}_main.png");
-                        info!("스크린샷: {path}");
+                        info!("screenshot: {path}");
                         commands
                             .spawn(Screenshot::primary_window())
                             .observe(save_to_disk(path));
@@ -168,7 +168,7 @@ fn run_selftest(
                 edits.stamp(&grid, pattern, *origin, *plane);
             }
             info!(
-                "[selftest] 패턴 {}개 배치, {}세대 진행",
+                "[selftest] placed {} patterns, running {} generations",
                 state.test.place.len(),
                 state.test.gens
             );
@@ -180,12 +180,8 @@ fn run_selftest(
             let waited = frame.0 - placed;
             if confirmed || waited > 600 {
                 info!(
-                    "[selftest] 배치 확인: {} ({}프레임 대기, readback {}회, 배치 시점 세대 {})",
-                    if confirmed {
-                        "OK"
-                    } else {
-                        "실패(타임아웃)"
-                    },
+                    "[selftest] placement {} (waited {} frames, {} readbacks, generation {})",
+                    if confirmed { "OK" } else { "timed out" },
                     waited,
                     snapshot.received,
                     generation.0
@@ -238,7 +234,7 @@ fn run_selftest(
                 return;
             }
             info!(
-                "[selftest] 대기 {frames}프레임, readback {}회, GPU 디스패치 {}세대 / 렌더 프레임 {} / 앱 프레임 {}",
+                "[selftest] settled after {frames} frames, {} readbacks, {} generations dispatched / {} render frames / {} app frames",
                 snapshot.received,
                 stats.dispatched(),
                 stats.render_frames(),
@@ -254,7 +250,7 @@ fn run_selftest(
             let ok = snapshot.is_ready() && snapshot.words == expected;
             if ok {
                 info!(
-                    "[selftest] OK — {}세대 후 그리드가 기대값과 정확히 일치 (readback {}회)",
+                    "[selftest] OK: grid matches expectation after {} generations ({} readbacks)",
                     generation.0, snapshot.received
                 );
             } else {

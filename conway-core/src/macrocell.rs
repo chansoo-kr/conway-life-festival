@@ -49,9 +49,9 @@ pub fn parse_macrocell(text: &str) -> Result<Pattern, String> {
             .split_whitespace()
             .map(|t| t.parse::<usize>())
             .collect::<Result<_, _>>()
-            .map_err(|_| format!("{}행: 숫자 파싱 실패: {l}", line_no + 1))?;
+            .map_err(|_| format!("line {}: expected numbers: {l}", line_no + 1))?;
         if nums.len() != 5 {
-            return Err(format!("{}행: 노드 형식 오류: {l}", line_no + 1));
+            return Err(format!("line {}: malformed node: {l}", line_no + 1));
         }
         let level = nums[0] as u32;
         if level == 1 {
@@ -64,30 +64,30 @@ pub fn parse_macrocell(text: &str) -> Result<Pattern, String> {
             continue;
         }
         if level > MAX_LEVEL {
-            return Err(format!("{}행: 레벨이 너무 큽니다 ({level})", line_no + 1));
+            return Err(format!("line {}: level too large ({level})", line_no + 1));
         }
         let children = [nums[1], nums[2], nums[3], nums[4]];
         if children.iter().any(|c| *c > nodes.len()) {
-            return Err(format!("{}행: 앞선 노드가 아닌 참조: {l}", line_no + 1));
+            return Err(format!("line {}: forward node reference: {l}", line_no + 1));
         }
         nodes.push(Node::Inner { level, children });
     }
     if nodes.is_empty() {
-        return Err("노드가 없습니다".into());
+        return Err("no nodes".into());
     }
     let mut cells = Vec::new();
     collect(&nodes, nodes.len(), IVec2::ZERO, &mut cells);
     if cells.is_empty() {
-        return Err("살아있는 셀이 없습니다".into());
+        return Err("no live cells".into());
     }
     if bounding_area(&cells) > MAX_AREA {
         cells = crop_to_core(cells);
     }
     let area = bounding_area(&cells);
     if area > MAX_AREA {
-        return Err(format!("패턴이 너무 큽니다 ({area}셀 면적)"));
+        return Err(format!("pattern too large ({area} cell area)"));
     }
-    Pattern::from_alive_cells(cells).ok_or_else(|| "살아있는 셀이 없습니다".into())
+    Pattern::from_alive_cells(cells).ok_or_else(|| "no live cells".into())
 }
 
 fn bounding_area(cells: &[IVec2]) -> u64 {

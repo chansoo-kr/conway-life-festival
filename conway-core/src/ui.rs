@@ -4,6 +4,7 @@ use crate::{
     camera::CameraActivity,
     grid::GridSize,
     paint::{PaintMode, PaintRequest, PaintSet, PaintTool},
+    rle::{Pattern, parse_rle},
     sim::{Generation, ResetGrid, SimControl, SimSet},
 };
 
@@ -32,7 +33,7 @@ fn pick_ui_font(
         .join("fonts/ui.ttf")
         .exists()
     {
-        info!("UI 폰트: assets/fonts/ui.ttf");
+        info!("ui font: assets/fonts/ui.ttf");
         commands.insert_resource(UiFont(FontSource::Handle(
             asset_server.load("fonts/ui.ttf"),
         )));
@@ -50,14 +51,12 @@ fn pick_ui_font(
             .iter()
             .find(|f| f.eq_ignore_ascii_case(wanted) || f.as_str() == *wanted)
         {
-            info!("UI 폰트: 시스템 패밀리 '{found}'");
+            info!("ui font: system family '{found}'");
             commands.insert_resource(UiFont(FontSource::Family(found.clone().into())));
             return;
         }
     }
-    warn!(
-        "한글 시스템 폰트를 찾지 못했습니다. assets/fonts/ui.ttf 를 넣어 주세요. (Sans-serif 대체)"
-    );
+    warn!("no Korean system font found; add assets/fonts/ui.ttf (falling back to sans-serif)");
     commands.insert_resource(UiFont(FontSource::SansSerif));
 }
 
@@ -213,7 +212,32 @@ pub enum StepGoal {
     Stamp(u32),
     Generations(u64),
     Zoom,
+    Shape(Pattern),
     Custom(&'static str),
+}
+
+fn shape_present(cells: &HashSet<IVec2>, shape: &Pattern) -> bool {
+    let offsets: Vec<IVec2> = shape.alive_cells().map(|c| c.as_ivec2()).collect();
+    let Some(first) = offsets.first().copied() else {
+        return false;
+    };
+    let w = shape.width as i32;
+    let h = shape.height as i32;
+    cells.iter().any(|anchor| {
+        let origin = *anchor - first;
+        offsets.iter().all(|o| cells.contains(&(origin + *o)))
+            && (-1..=w).all(|x| {
+                (-1..=h).all(|y| {
+                    let inside = x >= 0 && y >= 0 && x < w && y < h;
+                    inside || !cells.contains(&(origin + IVec2::new(x, y)))
+                })
+            })
+            && (0..w).all(|x| {
+                (0..h).all(|y| {
+                    shape.get(x as u32, y as u32) == cells.contains(&(origin + IVec2::new(x, y)))
+                })
+            })
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -265,9 +289,9 @@ pub fn common_rule_steps(paint_hint: &str) -> Vec<TutorialStep> {
         TutorialStep::new(
             "깜빡이 만들기",
             format!(
-                "{paint_hint}빈 자리에 가로로 나란히 셀 3개를 그려 보세요. 이 모양의 이름은 '깜빡이'입니다."
+                "{paint_hint}빈 자리에 가로로 딱 붙여 나란히 셀 3개를 그려 보세요 (주변 한 칸은 비워 두세요). 이 모양의 이름은 '깜빡이'입니다."
             ),
-            StepGoal::PaintCells(3),
+            StepGoal::Shape(parse_rle("x = 3, y = 1\n3o!").expect("blinker")),
         ),
         TutorialStep::new(
             "한 세대 진행",
@@ -297,6 +321,7 @@ struct StepProgress {
     zoomed: bool,
     custom: HashSet<&'static str>,
     done_at: Option<f64>,
+    cells: HashSet<IVec2>,
 }
 
 #[derive(Resource, Clone, Debug)]
@@ -382,6 +407,7 @@ impl Tutorial {
                 (g >= *n, format!("{}/{n} 세대", g.min(*n)))
             }
             Some(StepGoal::Zoom) => (p.zoomed, String::new()),
+            Some(StepGoal::Shape(shape)) => (shape_present(&p.cells, shape), String::new()),
             Some(StepGoal::Custom(id)) => (p.custom.contains(id), String::new()),
             None => (false, String::new()),
         }
@@ -391,6 +417,7 @@ impl Tutorial {
         self.step += 1;
         self.progress = StepProgress {
             generation_start: generation,
+            cells: std::mem::take(&mut self.progress.cells),
             ..default()
         };
         if self.step >= self.steps.len() {
@@ -521,6 +548,7 @@ fn track_tutorial(
     let mut painted = 0u32;
     let mut erased = 0u32;
     let mut stamped = 0u32;
+    let mut touched: Vec<(IVec2, bool)> = Vec::new();
     for req in paints.read() {
         if req.stamp {
             stamped += 1;
@@ -529,14 +557,22 @@ fn track_tutorial(
         } else {
             erased += req.cells.len() as u32;
         }
+        touched.extend(req.cells.iter().map(|c| (*c, req.alive)));
     }
     let zoomed = activity.zoomed;
-    if painted + erased + stamped > 0 || (zoomed && !tutorial.progress.zoomed) {
+    if !touched.is_empty() || (zoomed && !tutorial.progress.zoomed) {
         let p = &mut tutorial.progress;
         p.painted += painted;
         p.erased += erased;
         p.stamped += stamped;
         p.zoomed |= zoomed;
+        for (cell, alive) in touched {
+            if alive {
+                p.cells.insert(cell);
+            } else {
+                p.cells.remove(&cell);
+            }
+        }
     }
 
     let (met, _) = tutorial.goal_status(generation.0);

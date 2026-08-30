@@ -723,7 +723,7 @@ fn tick_phase(
                 };
                 battle.live = counts;
                 battle.phase = Phase::Result { winner, counts };
-                info!("결과: P1 {} vs P2 {}", counts[0], counts[1]);
+                info!("result: P1 {} vs P2 {}", counts[0], counts[1]);
             }
         }
         Phase::Result { .. } => {}

@@ -127,12 +127,12 @@ pub fn parse_rle(text: &str) -> Result<Pattern, String> {
                     "x" => {
                         width = value
                             .parse()
-                            .map_err(|_| format!("x 값 파싱 실패: {value}"))?
+                            .map_err(|_| format!("invalid x value: {value}"))?
                     }
                     "y" => {
                         height = value
                             .parse()
-                            .map_err(|_| format!("y 값 파싱 실패: {value}"))?
+                            .map_err(|_| format!("invalid y value: {value}"))?
                     }
                     _ => {}
                 }
@@ -144,7 +144,7 @@ pub fn parse_rle(text: &str) -> Result<Pattern, String> {
     }
 
     if width == 0 || height == 0 {
-        return Err("헤더(x = .., y = ..)를 찾을 수 없습니다".into());
+        return Err("missing header (x = .., y = ..)".into());
     }
 
     let mut pattern = Pattern::empty(width, height);

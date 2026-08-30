@@ -550,14 +550,14 @@ fn handle_dropped_rle(
         let text = match std::fs::read_to_string(path_buf) {
             Ok(t) => t,
             Err(e) => {
-                warn!("파일 읽기 실패({}): {e}", path_buf.display());
+                warn!("failed to read file {}: {e}", path_buf.display());
                 continue;
             }
         };
         match parse_rle(&text) {
             Ok(pattern) => {
                 info!(
-                    "RLE 로드: {} ({}x{})",
+                    "loaded RLE {} ({}x{})",
                     path_buf.display(),
                     pattern.width,
                     pattern.height
@@ -565,7 +565,7 @@ fn handle_dropped_rle(
                 let origin = grid.centered_origin(&pattern);
                 reset.write(ResetGrid(pack_words(&grid, &[(&pattern, origin, 0)])));
             }
-            Err(e) => warn!("RLE 파싱 실패({}): {e}", path_buf.display()),
+            Err(e) => warn!("failed to parse RLE {}: {e}", path_buf.display()),
         }
     }
 }

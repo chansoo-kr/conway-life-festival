@@ -73,7 +73,7 @@ pub fn builtin_presets() -> Vec<Preset> {
                 rate: None,
             }),
             Err(e) => {
-                error!("내장 프리셋 '{name}' 파싱 실패: {e}");
+                error!("failed to parse builtin preset '{name}': {e}");
                 None
             }
         })
@@ -101,7 +101,7 @@ pub fn load_pattern_dir(dir: impl AsRef<std::path::Path>) -> Vec<Preset> {
             let text = match std::fs::read_to_string(&path) {
                 Ok(t) => t,
                 Err(e) => {
-                    warn!("패턴 파일 읽기 실패({}): {e}", path.display());
+                    warn!("failed to read pattern file {}: {e}", path.display());
                     return None;
                 }
             };
@@ -117,7 +117,7 @@ pub fn load_pattern_dir(dir: impl AsRef<std::path::Path>) -> Vec<Preset> {
             let pattern = match parsed {
                 Ok(p) => p,
                 Err(e) => {
-                    warn!("패턴 파싱 실패({}): {e}", path.display());
+                    warn!("failed to parse pattern {}: {e}", path.display());
                     return None;
                 }
             };
@@ -128,7 +128,7 @@ pub fn load_pattern_dir(dir: impl AsRef<std::path::Path>) -> Vec<Preset> {
             });
             let rate = (pattern.width * pattern.height > 1_000_000).then_some(2048.0);
             info!(
-                "패턴 파일 로드: {} ({}x{})",
+                "loaded pattern {} ({}x{})",
                 path.display(),
                 pattern.width,
                 pattern.height
@@ -185,13 +185,13 @@ mod tests {
                 _ => continue,
             };
             if let Err(e) = parsed {
-                println!("파싱 실패 {}: {e}", path.display());
+                println!("failed to parse {}: {e}", path.display());
             }
         }
         let presets = load_pattern_dir(&dir);
         for p in &presets {
             println!(
-                "{}: {}x{} ({}셀)",
+                "{}: {}x{} ({} cells)",
                 p.name,
                 p.pattern.width,
                 p.pattern.height,
@@ -199,10 +199,10 @@ mod tests {
             );
             assert!(
                 p.pattern.width <= 16384 && p.pattern.height <= 16384,
-                "{} 이 자유 모드 격자보다 큽니다",
+                "{} exceeds the free-mode grid",
                 p.name
             );
         }
-        assert_eq!(presets.len(), files, "파싱에 실패한 패턴 파일이 있습니다");
+        assert_eq!(presets.len(), files, "some pattern files failed to parse");
     }
 }

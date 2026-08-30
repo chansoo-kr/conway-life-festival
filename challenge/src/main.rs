@@ -27,13 +27,43 @@ const DEFAULT_INTERVAL_SECS: u64 = 30 * 60;
 const MAX_BEST: usize = 5;
 const DEFAULT_RATE: f32 = 1.0;
 const RATES: &[f32] = &[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0];
-const MAX_TARGET_SIZE: u32 = 13;
+const DEFAULT_LIMIT_SECS: f32 = 60.0;
+const RESULT_SECS: f64 = 8.0;
+const TARGET_POOL: &[&str] = &[
+    "블록",
+    "벌집",
+    "빵",
+    "보트",
+    "튜브",
+    "깜빡이",
+    "두꺼비",
+    "비컨",
+    "글라이더",
+    "이터",
+];
+
+fn orientations(p: &Pattern) -> Vec<Pattern> {
+    let mut out: Vec<Pattern> = Vec::new();
+    let mut r = p.clone();
+    for _ in 0..4 {
+        for v in [r.clone(), r.flip_h()] {
+            if let Some(n) = v.normalized()
+                && !out.contains(&n)
+            {
+                out.push(n);
+            }
+        }
+        r = r.rotate_cw();
+    }
+    out
+}
 
 #[derive(Clone, Debug)]
 pub struct RoundInfo {
     pub id: u64,
     pub name: String,
     pub pattern: Pattern,
+    pub variants: Vec<Pattern>,
     pub starts_at: u64,
     pub ends_at: u64,
 }
@@ -49,15 +79,16 @@ pub struct LocalSource {
 
 impl LocalSource {
     pub fn new(interval_secs: u64) -> Self {
-        let pool: Vec<(String, Pattern)> = builtin_presets()
-            .into_iter()
-            .filter_map(|p| {
+        let presets = builtin_presets();
+        let pool: Vec<(String, Pattern)> = TARGET_POOL
+            .iter()
+            .filter_map(|key| {
+                let p = presets.iter().find(|p| p.name.starts_with(key))?;
                 let n = p.pattern.normalized()?;
-                (n.width <= MAX_TARGET_SIZE && n.height <= MAX_TARGET_SIZE && n.alive_count() >= 4)
-                    .then(|| (p.name.split(" (").next().unwrap_or(&p.name).to_string(), n))
+                Some((p.name.split(" (").next().unwrap_or(&p.name).to_string(), n))
             })
             .collect();
-        assert!(!pool.is_empty(), "문제 풀이 비어 있습니다");
+        assert!(!pool.is_empty(), "challenge pool is empty");
         Self {
             pool,
             interval_secs: interval_secs.max(10),
@@ -80,6 +111,7 @@ impl ChallengeSource for LocalSource {
             id,
             name: name.clone(),
             pattern: pattern.clone(),
+            variants: orientations(pattern),
             starts_at: id * self.interval_secs,
             ends_at: (id + 1) * self.interval_secs,
         }
@@ -101,6 +133,7 @@ enum Phase {
     Idle,
     Playing { started: f64 },
     Cleared { time: f32, generation: u64 },
+    TimeUp { since: f64 },
 }
 
 #[derive(Resource)]
@@ -109,6 +142,7 @@ struct Challenge {
     phase: Phase,
     best: Vec<f32>,
     rate: f32,
+    limit: f32,
 }
 
 #[derive(Component)]
@@ -152,6 +186,10 @@ fn main() -> AppExit {
         .and_then(|v| v.parse::<f32>().ok())
         .filter(|r| *r > 0.0)
         .unwrap_or(DEFAULT_RATE);
+    let limit = arg_value("--limit-sec")
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|s| *s > 0.0)
+        .unwrap_or(DEFAULT_LIMIT_SECS);
 
     let source: Box<dyn ChallengeSource> = Box::new(LocalSource::new(interval));
     let round = source.current_round(unix_now());
@@ -198,6 +236,7 @@ fn main() -> AppExit {
             phase: Phase::Idle,
             best: Vec::new(),
             rate,
+            limit,
         })
         .add_message::<Action>()
         .add_systems(Startup, setup_ui)
@@ -209,6 +248,7 @@ fn main() -> AppExit {
                 handle_actions,
                 on_tutorial_finished,
                 check_match,
+                tick_limit,
                 sync_tool.run_if(tutorial_inactive),
                 update_hud,
             )
@@ -369,7 +409,7 @@ fn poll_round(
         return;
     }
     let round = source.0.current_round(now);
-    info!("새 라운드 #{}: {}", round.id, round.name);
+    info!("new round #{}: {}", round.id, round.name);
     let pattern = round.pattern.clone();
     challenge.round = round;
     challenge.phase = Phase::Idle;
@@ -413,6 +453,10 @@ fn handle_actions(
         match action {
             Action::Start => {
                 tutorial.complete("start");
+                if matches!(challenge.phase, Phase::TimeUp { .. }) {
+                    challenge.phase = Phase::Idle;
+                    continue;
+                }
                 reset.write(ResetGrid::empty(&grid));
                 speed.rate = challenge.rate;
                 control.paused = false;
@@ -475,7 +519,7 @@ fn check_match(
     let Some(drawn) = Pattern::from_alive_cells(cells) else {
         return;
     };
-    if drawn != challenge.round.pattern {
+    if !challenge.round.variants.contains(&drawn) {
         return;
     }
 
@@ -491,7 +535,29 @@ fn check_match(
         .best
         .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     challenge.best.truncate(MAX_BEST);
-    info!("클리어! {elapsed:.2}초 (세대 {})", generation.0);
+    info!("cleared in {elapsed:.2}s (generation {})", generation.0);
+}
+
+fn tick_limit(
+    time: Res<Time>,
+    grid: Res<GridSize>,
+    mut challenge: ResMut<Challenge>,
+    mut control: ResMut<SimControl>,
+    mut reset: MessageWriter<ResetGrid>,
+) {
+    let now = time.elapsed_secs_f64();
+    match challenge.phase {
+        Phase::Playing { started } if now - started >= challenge.limit as f64 => {
+            control.paused = true;
+            reset.write(ResetGrid::empty(&grid));
+            challenge.phase = Phase::TimeUp { since: now };
+            info!("time up after {:.0}s", challenge.limit);
+        }
+        Phase::TimeUp { since } if now - since >= RESULT_SECS => {
+            challenge.phase = Phase::Idle;
+        }
+        _ => {}
+    }
 }
 
 fn on_tutorial_finished(
@@ -546,13 +612,19 @@ fn update_hud(
                 Phase::Cleared { time, generation } => format!(
                     "성공!  기록 {time:.2}초 (세대 {generation})\n'다시 도전'으로 기록을 갱신해 보세요."
                 ),
+                Phase::TimeUp { .. } => format!(
+                    "시간 초과!  제한 시간 {:.0}초 안에 완성하지 못했습니다.\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기).",
+                    challenge.limit
+                ),
             },
             Hud::Timer => match challenge.phase {
-                Phase::Idle => "0.00 초".into(),
-                Phase::Playing { started } => {
-                    format!("{:.2} 초", time.elapsed_secs_f64() - started)
-                }
+                Phase::Idle => format!("{:.0} 초", challenge.limit),
+                Phase::Playing { started } => format!(
+                    "{:.1} 초 남음",
+                    (challenge.limit as f64 - (time.elapsed_secs_f64() - started)).max(0.0)
+                ),
                 Phase::Cleared { time, .. } => format!("{time:.2} 초"),
+                Phase::TimeUp { .. } => "시간 초과".into(),
             },
             Hud::Sim => format!(
                 "속도 {:.1} 세대/초  ·  세대 {}",
@@ -582,6 +654,7 @@ fn update_hud(
                         Phase::Idle => "시작 (Space)",
                         Phase::Playing { .. } => "처음부터 (Space)",
                         Phase::Cleared { .. } => "다시 도전 (Space)",
+                        Phase::TimeUp { .. } => "처음으로 (Space)",
                     },
                 );
             }
@@ -593,7 +666,8 @@ fn tutorial_steps() -> Vec<TutorialStep> {
     vec![
         TutorialStep::new(
             "목표 모양 확인",
-            "왼쪽 패널의 '목표 모양'이 이번 라운드의 문제입니다. 격자 어디든 이 모양과 똑같은 모양(살아있는 셀 전체)을 만들면 성공입니다.\n\
+            "왼쪽 패널의 '목표 모양'이 이번 라운드의 문제입니다. 격자 어디든 이 모양과 똑같은 모양(살아있는 셀 전체)을 만들면 성공입니다. 돌리거나 뒤집은 모양도 인정됩니다.\n\
+             한 번 도전할 때 제한 시간이 있고(기본 60초), 시간이 다 되면 결과를 보여 준 뒤 처음 화면으로 돌아갑니다.\n\
              문제는 30분마다 바뀌고, 패널 아래에 다음 문제까지 남은 시간이 표시됩니다.",
             StepGoal::Info,
         ),
@@ -616,7 +690,7 @@ fn tutorial_steps() -> Vec<TutorialStep> {
         TutorialStep::new(
             "판정과 기록",
             "격자 위 살아있는 셀 전체가 목표와 같아지는 순간 자동으로 판정되어 기록이 남고, 그 순간의 격자가 고정됩니다.\n\
-             정지 패턴은 완성 순서를, 움직이는 패턴은 완성되는 순간을 노리세요. 진행 요원은 [ ] 키로 속도(난이도)를 바꿀 수 있습니다.\n\
+             정지 패턴은 완성 순서를, 움직이는 패턴은 완성되는 순간을 노리세요. 제한 시간 안에 못 만들면 처음으로 돌아갑니다.\n\
              튜토리얼을 마치면 라운드가 처음 상태로 돌아갑니다. 행운을 빕니다!",
             StepGoal::Info,
         ),

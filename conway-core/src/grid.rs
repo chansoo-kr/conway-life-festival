@@ -12,7 +12,7 @@ impl GridSize {
     pub fn new(size: UVec2, planes: u32) -> Self {
         assert!(
             size.x.is_multiple_of(32),
-            "그리드 가로 크기는 32의 배수여야 합니다"
+            "grid width must be a multiple of 32"
         );
         assert!((1..=2).contains(&planes));
         Self { size, planes }
