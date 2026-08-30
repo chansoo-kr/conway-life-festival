@@ -1,0 +1,10 @@
+[package]
+name = "challenge"
+description = "축제 부스 #2: 실시간 시뮬레이션 위에서 목표 모양 빠르게 맞추기 (30분마다 새 문제)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+conway-core.workspace = true

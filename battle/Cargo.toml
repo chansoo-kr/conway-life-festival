@@ -1,0 +1,10 @@
+[package]
+name = "battle"
+description = "축제 부스 #3: 1 vs 1 대전 (Immigration 규칙)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+conway-core.workspace = true

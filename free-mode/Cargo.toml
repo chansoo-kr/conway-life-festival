@@ -1,0 +1,10 @@
+[package]
+name = "free-mode"
+description = "축제 부스 #1: 자유 모드 + 프리셋 체험"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+conway-core.workspace = true

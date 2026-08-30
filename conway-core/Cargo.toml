@@ -1,0 +1,9 @@
+[package]
+name = "conway-core"
+description = "Conway's Game of Life festival core: GPU simulation, painting, camera, UI/tutorial, presets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
