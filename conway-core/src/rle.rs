@@ -4,15 +4,16 @@ use bevy::math::{IVec2, UVec2};
 pub struct Pattern {
     pub width: u32,
     pub height: u32,
-    pub cells: Vec<bool>,
+    bits: Vec<u64>,
 }
 
 impl Pattern {
     pub fn empty(width: u32, height: u32) -> Self {
+        let n = width as usize * height as usize;
         Self {
             width,
             height,
-            cells: vec![false; (width * height) as usize],
+            bits: vec![0; n.div_ceil(64)],
         }
     }
 
@@ -21,27 +22,47 @@ impl Pattern {
     }
 
     #[inline]
+    fn index(&self, x: u32, y: u32) -> Option<(usize, u64)> {
+        (x < self.width && y < self.height).then(|| {
+            let i = y as usize * self.width as usize + x as usize;
+            (i >> 6, 1u64 << (i & 63))
+        })
+    }
+
+    #[inline]
     pub fn get(&self, x: u32, y: u32) -> bool {
-        x < self.width && y < self.height && self.cells[(y * self.width + x) as usize]
+        self.index(x, y)
+            .is_some_and(|(w, mask)| self.bits[w] & mask != 0)
     }
 
     #[inline]
     pub fn set(&mut self, x: u32, y: u32, alive: bool) {
-        if x < self.width && y < self.height {
-            self.cells[(y * self.width + x) as usize] = alive;
+        if let Some((w, mask)) = self.index(x, y) {
+            if alive {
+                self.bits[w] |= mask;
+            } else {
+                self.bits[w] &= !mask;
+            }
         }
     }
 
     pub fn alive_count(&self) -> u32 {
-        self.cells.iter().filter(|c| **c).count() as u32
+        self.bits.iter().map(|w| w.count_ones()).sum()
     }
 
     pub fn alive_cells(&self) -> impl Iterator<Item = UVec2> + '_ {
-        self.cells
-            .iter()
-            .enumerate()
-            .filter(|(_, alive)| **alive)
-            .map(|(i, _)| UVec2::new(i as u32 % self.width, i as u32 / self.width))
+        let width = self.width as usize;
+        self.bits.iter().enumerate().flat_map(move |(wi, word)| {
+            let base = wi << 6;
+            std::iter::successors((*word != 0).then_some(*word), |w| {
+                let next = *w & (*w - 1);
+                (next != 0).then_some(next)
+            })
+            .map(move |w| {
+                let i = base + w.trailing_zeros() as usize;
+                UVec2::new((i % width) as u32, (i / width) as u32)
+            })
+        })
     }
 
     pub fn flip_h(&self) -> Pattern {

@@ -18,7 +18,8 @@ use conway_core::{
     },
 };
 
-const GRID: UVec2 = UVec2::new(10016, 6800);
+const GRID: UVec2 = UVec2::new(16384, 16384);
+const MAX_STEPS_PER_FRAME: u32 = 256;
 const RATES: &[f32] = &[
     1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 256.0, 512.0, 1024.0, 2048.0,
 ];
@@ -64,10 +65,29 @@ enum Action {
 fn main() -> AppExit {
     let presets = load_presets();
     let grid = GridSize::new(GRID, 1);
-    let initial_words = presets
+    let args: Vec<String> = std::env::args().collect();
+    let wanted = args
+        .windows(2)
+        .find(|w| w[0] == "--preset")
+        .map(|w| w[1].clone());
+    let initial = presets
         .iter()
-        .find(|p| p.name.contains("고스퍼"))
-        .map(|p| pack_words(&grid, &[(&p.pattern, grid.centered_origin(&p.pattern), 0)]));
+        .find(|p| wanted.as_deref().is_some_and(|n| p.name.contains(n)))
+        .or_else(|| presets.iter().find(|p| p.name.contains("고스퍼")));
+    let initial_words =
+        initial.map(|p| pack_words(&grid, &[(&p.pattern, grid.centered_origin(&p.pattern), 0)]));
+    let zoom = args
+        .windows(2)
+        .find(|w| w[0] == "--zoom")
+        .and_then(|w| w[1].parse::<f32>().ok());
+    let view = match (zoom, initial) {
+        (Some(cells), _) => InitialView::CellsWide(cells),
+        (None, Some(p)) if wanted.is_some() => {
+            InitialView::CellsWide(p.pattern.width as f32 * 1.15)
+        }
+        _ => InitialView::CellsWide(150.0),
+    };
+    let initial_rate = initial.and_then(|p| p.rate).unwrap_or(10.0);
 
     App::new()
         .add_plugins(conway_core::festival_default_plugins(
@@ -76,8 +96,10 @@ fn main() -> AppExit {
         .add_plugins((
             ConwaySimPlugin(SimConfig {
                 size: GRID,
-                initial_rate: 10.0,
-                initial_view: InitialView::CellsWide(150.0),
+                initial_rate,
+                max_steps_per_frame: MAX_STEPS_PER_FRAME,
+                start_paused: args.iter().any(|a| a == "--paused"),
+                initial_view: view,
                 initial_words: if debug::selftest_enabled() {
                     None
                 } else {
@@ -159,7 +181,8 @@ fn tutorial_pages() -> Vec<TutorialPage> {
              • 진동 패턴 : 주기적으로 반복 (깜빡이, 펄서 …)\n\
              • 이동 패턴 : 우주선처럼 움직임 (글라이더, LWSS …)\n\
              • 글라이더 건 : 글라이더를 끝없이 발사\n\
-             • 시계 : 실제 시각을 표시하는 초대형 패턴 (빠른 속도 권장)\n\n\
+             • 초대형 : 실제 시각을 표시하는 시계, ALU·RAM을 갖춘 8/16비트 컴퓨터, 튜링 머신,\n\
+               소수 계산기, 메모리 테이프 … (빠른 속도로 자동 전환, 휠로 확대해 회로를 살펴보세요)\n\n\
              프리셋 옆 '스탬프'를 고르면 그리드를 클릭한 자리에 그 패턴을 찍을 수 있습니다.\n\
              '펜' 버튼(P)으로 다시 그리기 모드로 돌아옵니다.",
         ),
@@ -168,7 +191,7 @@ fn tutorial_pages() -> Vec<TutorialPage> {
             "• 마우스 휠 : 커서 위치 기준 확대/축소\n\
              • W A S D / 방향키 또는 가운데 버튼 드래그 : 이동\n\
              • F : 그리드 전체 보기\n\n\
-             격자는 아주 넓고(10016 x 6800), 가장자리는 반대편과 이어져 있습니다.\n\
+             격자는 아주 넓고(16384 x 16384), 가장자리는 반대편과 이어져 있습니다.\n\
              이제 마음껏 실험해 보세요!",
         ),
     ]

@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::rle::{Pattern, parse_rle, rle_name};
+use crate::{
+    macrocell::parse_macrocell,
+    rle::{Pattern, parse_rle, rle_name},
+};
 
 #[derive(Clone, Debug)]
 pub struct Preset {
@@ -87,7 +90,7 @@ pub fn load_pattern_dir(dir: impl AsRef<std::path::Path>) -> Vec<Preset> {
         .filter(|p| {
             p.extension()
                 .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("rle"))
+                .is_some_and(|e| e.eq_ignore_ascii_case("rle") || e.eq_ignore_ascii_case("mc"))
         })
         .collect();
     paths.sort();
@@ -102,10 +105,19 @@ pub fn load_pattern_dir(dir: impl AsRef<std::path::Path>) -> Vec<Preset> {
                     return None;
                 }
             };
-            let pattern = match parse_rle(&text) {
+            let is_mc = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("mc"));
+            let parsed = if is_mc {
+                parse_macrocell(&text)
+            } else {
+                parse_rle(&text)
+            };
+            let pattern = match parsed {
                 Ok(p) => p,
                 Err(e) => {
-                    warn!("RLE 파싱 실패({}): {e}", path.display());
+                    warn!("패턴 파싱 실패({}): {e}", path.display());
                     return None;
                 }
             };
@@ -136,4 +148,61 @@ pub fn load_presets() -> Vec<Preset> {
         std::path::Path::new(&crate::asset_root()).join("patterns"),
     ));
     presets
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_presets_parse() {
+        assert_eq!(builtin_presets().len(), BUILTIN_RLE.len());
+    }
+
+    #[test]
+    fn asset_patterns_fit_free_mode_grid() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/patterns");
+        let files = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref().is_ok_and(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|x| x.to_str())
+                        .is_some_and(|x| x == "rle" || x == "mc")
+                })
+            })
+            .count();
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            let Some(ext) = path.extension().and_then(|x| x.to_str()) else {
+                continue;
+            };
+            let text = std::fs::read_to_string(&path).unwrap();
+            let parsed = match ext {
+                "mc" => parse_macrocell(&text),
+                "rle" => parse_rle(&text),
+                _ => continue,
+            };
+            if let Err(e) = parsed {
+                println!("파싱 실패 {}: {e}", path.display());
+            }
+        }
+        let presets = load_pattern_dir(&dir);
+        for p in &presets {
+            println!(
+                "{}: {}x{} ({}셀)",
+                p.name,
+                p.pattern.width,
+                p.pattern.height,
+                p.pattern.alive_count()
+            );
+            assert!(
+                p.pattern.width <= 16384 && p.pattern.height <= 16384,
+                "{} 이 자유 모드 격자보다 큽니다",
+                p.name
+            );
+        }
+        assert_eq!(presets.len(), files, "파싱에 실패한 패턴 파일이 있습니다");
+    }
 }

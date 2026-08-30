@@ -6,7 +6,7 @@
 | 패키지 | 용도 | 실행 |
 |---|---|---|
 | `conway-core` | 공용 라이브러리 (GPU 시뮬레이션, 페인팅, 카메라, UI/튜토리얼, 프리셋, 에셋) | — |
-| `free-mode` | 자유 모드 + 프리셋 체험 (10016×6800 격자, 시계 프리셋 포함) | `cargo run --release -p free-mode` |
+| `free-mode` | 자유 모드 + 프리셋 체험 (16384×16384 격자 · 시계, 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 등 초대형 프리셋 포함) | `cargo run --release -p free-mode` |
 | `challenge` | **실시간으로 진화하는 격자** 위에서 30분마다 제시되는 모양 빠르게 만들기 | `cargo run --release -p challenge` |
 | `battle` | 1 vs 1 대전 (Immigration 규칙, 색 다수결) | `cargo run --release -p battle` |
 
@@ -20,7 +20,9 @@
 - `Space` 재생/정지 · `N` 한 세대 · `[` `]` 속도 (1~2048 세대/초) · `R` 보이는 영역 랜덤 · `C` 지우기 · `F` 전체 보기 · `P` 펜
 - 휠 줌(커서 기준), `WASD`/방향키 또는 가운데 버튼 드래그로 이동
 - 왼쪽 패널 프리셋 클릭 → 중앙 로드, "스탬프" → 클릭한 자리에 찍기
-- `.rle` 파일을 창에 드롭하면 로드. `conway-core/assets/patterns/*.rle` 는 시작 시 프리셋으로 자동 등록 (`#N 이름` 주석 사용)
+- `.rle` 파일을 창에 드롭하면 로드. `conway-core/assets/patterns/*.rle`, `*.mc`(Golly 매크로셀)는 시작 시 프리셋으로 자동 등록 (`#N 이름` 주석이 표시 이름, 출처는 `SOURCES.md`)
+- 실행 옵션: `--preset <이름 일부>` 시작 프리셋 지정 · `--paused` 정지 상태로 시작 · `--zoom <셀 수>` 시작 화면 가로 셀 수
+  예: `cargo run --release -p free-mode -- --preset 8비트 --paused --zoom 400`
 
 ### challenge
 - `Space` 시작/다시 도전 · `C` 지우기 · `[` `]` 시뮬레이션 속도(난이도, 진행 요원용)

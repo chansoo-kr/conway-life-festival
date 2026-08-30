@@ -3,6 +3,7 @@
 pub mod camera;
 pub mod debug;
 pub mod grid;
+pub mod macrocell;
 pub mod paint;
 pub mod presets;
 pub mod rle;
