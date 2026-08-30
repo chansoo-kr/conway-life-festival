@@ -13,11 +13,18 @@ use conway_core::{
         SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, StepGoal, TEXT_COLOR,
-        Tutorial, TutorialStep, UiFont, button_styled, button_with, hud_text, intro_closed, panel,
-        set_text,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
+        TEXT_COLOR, Tutorial, TutorialStep, UiFont, button_styled, button_with, hud_text,
+        intro_closed, panel, set_text,
     },
 };
+
+#[derive(Resource)]
+struct InitialState {
+    words: Option<Vec<u32>>,
+    rate: f32,
+    cells_wide: f32,
+}
 
 const GRID: UVec2 = UVec2::new(16384, 16384);
 const MAX_STEPS_PER_FRAME: u32 = 256;
@@ -89,6 +96,10 @@ fn main() -> AppExit {
         _ => InitialView::CellsWide(150.0),
     };
     let initial_rate = initial.and_then(|p| p.rate).unwrap_or(10.0);
+    let cells_wide = match view {
+        InitialView::CellsWide(c) => c,
+        _ => 150.0,
+    };
 
     App::new()
         .add_plugins(conway_core::festival_default_plugins(
@@ -104,7 +115,7 @@ fn main() -> AppExit {
                 initial_words: if debug::selftest_enabled() {
                     None
                 } else {
-                    initial_words
+                    initial_words.clone()
                 },
                 readback: debug::selftest_enabled(),
                 ..default()
@@ -124,6 +135,11 @@ fn main() -> AppExit {
             debug::SelfTestPlugin(selftest()),
         ))
         .insert_resource(Presets(presets))
+        .insert_resource(InitialState {
+            words: initial_words,
+            rate: initial_rate,
+            cells_wide,
+        })
         .add_message::<Action>()
         .add_systems(Startup, setup_ui)
         .add_systems(PostStartup, initial_view)
@@ -132,6 +148,7 @@ fn main() -> AppExit {
             (
                 keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
+                on_session_reset,
                 handle_dropped_rle,
                 update_hud,
             )
@@ -345,6 +362,47 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, presets: Res<Presets>) {
             hud.spawn((hud_text(&font, "", 16.0, TEXT_COLOR), Hud::Tool));
             hud.spawn((hud_text(&font, "", 16.0, MUTED_COLOR), Hud::Cursor));
         });
+}
+
+fn on_session_reset(
+    mut resets: MessageReader<SessionReset>,
+    mut commands: Commands,
+    initial: Res<InitialState>,
+    grid: Res<GridSize>,
+    view: Res<GridView>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    mut control: ResMut<SimControl>,
+    mut speed: ResMut<SimSpeed>,
+    mut tool: ResMut<PaintTool>,
+    mut reset: MessageWriter<ResetGrid>,
+    camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
+    preset_buttons: Query<Entity, With<PresetButton>>,
+    pen_button: Query<Entity, With<PenButton>>,
+) {
+    if resets.read().last().is_none() {
+        return;
+    }
+    reset.write(match &initial.words {
+        Some(words) => ResetGrid(words.clone()),
+        None => ResetGrid::empty(&grid),
+    });
+    speed.rate = initial.rate;
+    control.paused = false;
+    control.step_once = false;
+    tool.mode = PaintMode::Pen;
+    tool.enabled = true;
+    let (mut tf, mut projection) = camera.into_inner();
+    let scale = initial.cells_wide * view.display_factor / window.width().max(1.0);
+    if let Projection::Orthographic(o) = &mut *projection {
+        o.scale = scale;
+    }
+    tf.translation = Vec3::new(-LEFT_PANEL_W * 0.5 * scale, TOP_BAR_H * 0.5 * scale, 0.0);
+    for e in &preset_buttons {
+        commands.entity(e).remove::<Selected>();
+    }
+    for e in &pen_button {
+        commands.entity(e).insert(Selected);
+    }
 }
 
 fn initial_view(camera: Single<(&mut Transform, &Projection), With<MainCamera>>) {

@@ -1,4 +1,9 @@
-use bevy::{platform::collections::HashSet, prelude::*, text::FontCx};
+use bevy::{
+    input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+    platform::collections::HashSet,
+    prelude::*,
+    text::FontCx,
+};
 
 use crate::{
     camera::CameraActivity,
@@ -361,6 +366,14 @@ impl Tutorial {
         self.intro_open || self.active
     }
 
+    pub fn reset(&mut self) {
+        self.intro_open = true;
+        self.active = false;
+        self.step = 0;
+        self.progress = StepProgress::default();
+        self.saved_control = None;
+    }
+
     pub fn dismiss(&mut self) {
         self.intro_open = false;
         self.active = false;
@@ -442,6 +455,67 @@ struct TutorialOverlay;
 #[derive(Component)]
 struct TutorialButton;
 
+#[derive(Message, Clone, Copy, Debug)]
+pub struct SessionReset;
+
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct SessionConfig {
+    pub idle_reset_secs: f32,
+}
+
+pub fn idle_reset_from_args(default_secs: f32) -> f32 {
+    std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|w| w[0] == "--idle-reset-sec")
+        .and_then(|w| w[1].parse::<f32>().ok())
+        .unwrap_or(default_secs)
+}
+
+#[derive(Resource, Default)]
+struct IdleClock {
+    last_input: f64,
+}
+
+fn idle_watch(
+    time: Res<Time>,
+    config: Res<SessionConfig>,
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
+    tutorial: Res<Tutorial>,
+    mut clock: ResMut<IdleClock>,
+    mut reset: MessageWriter<SessionReset>,
+) {
+    let now = time.elapsed_secs_f64();
+    let input = keys.get_just_pressed().next().is_some()
+        || buttons.get_just_pressed().next().is_some()
+        || motion.delta != Vec2::ZERO
+        || scroll.delta != Vec2::ZERO;
+    if input || tutorial.intro_open {
+        clock.last_input = now;
+        return;
+    }
+    if config.idle_reset_secs > 0.0 && now - clock.last_input > config.idle_reset_secs as f64 {
+        clock.last_input = now;
+        info!("idle for {:.0}s, resetting session", config.idle_reset_secs);
+        reset.write(SessionReset);
+    }
+}
+
+fn apply_session_reset(
+    mut resets: MessageReader<SessionReset>,
+    mut tutorial: ResMut<Tutorial>,
+    mut activity: ResMut<CameraActivity>,
+) {
+    if resets.read().last().is_none() {
+        return;
+    }
+    tutorial.reset();
+    *activity = CameraActivity::default();
+}
+
 fn spawn_tutorial_button(mut commands: Commands, font: Res<UiFont>) {
     commands
         .spawn((
@@ -449,16 +523,24 @@ fn spawn_tutorial_button(mut commands: Commands, font: Res<UiFont>) {
                 position_type: PositionType::Absolute,
                 top: px(12),
                 right: px(12),
+                column_gap: px(8),
                 ..default()
             },
             GlobalZIndex(10),
-            children![(
+        ))
+        .with_children(|bar| {
+            bar.spawn((
                 button_with(&font, "튜토리얼 (T)", 18.0, ButtonColors::accent()),
                 TutorialButton,
-            )],
-        ))
-        .observe(|_: On<Pointer<Click>>, mut tutorial: ResMut<Tutorial>| {
-            tutorial.toggle();
+            ))
+            .observe(|_: On<Pointer<Click>>, mut tutorial: ResMut<Tutorial>| {
+                tutorial.toggle();
+            });
+            bar.spawn(button(&font, "처음으로", 18.0)).observe(
+                |_: On<Pointer<Click>>, mut reset: MessageWriter<SessionReset>| {
+                    reset.write(SessionReset);
+                },
+            );
         });
 }
 
@@ -818,6 +900,7 @@ fn sync_tutorial_overlay(
 
 pub struct FestivalUiPlugin {
     pub tutorial: Tutorial,
+    pub idle_reset_secs: f32,
 }
 
 impl FestivalUiPlugin {
@@ -834,7 +917,13 @@ impl FestivalUiPlugin {
             .collect();
         Self {
             tutorial: Tutorial::new(mode_name, mode_description, steps),
+            idle_reset_secs: idle_reset_from_args(180.0),
         }
+    }
+
+    pub fn idle_reset(mut self, secs: f32) -> Self {
+        self.idle_reset_secs = secs;
+        self
     }
 
     pub fn with_rules(mut self, paint_hint: &str) -> Self {
@@ -851,14 +940,21 @@ impl FestivalUiPlugin {
 impl Plugin for FestivalUiPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.tutorial.clone())
+            .insert_resource(SessionConfig {
+                idle_reset_secs: self.idle_reset_secs,
+            })
+            .init_resource::<IdleClock>()
             .init_resource::<CameraActivity>()
             .add_message::<TutorialFinished>()
+            .add_message::<SessionReset>()
             .add_systems(PreStartup, pick_ui_font)
             .add_systems(Startup, spawn_tutorial_button)
             .add_systems(
                 Update,
                 (
                     button_colors,
+                    idle_watch,
+                    apply_session_reset,
                     tutorial_keys,
                     track_tutorial.after(PaintSet).after(SimSet),
                     sync_tutorial_overlay,

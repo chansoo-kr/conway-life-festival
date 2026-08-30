@@ -15,9 +15,9 @@ use conway_core::{
         SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, StepGoal, TEXT_COLOR, Tutorial,
-        TutorialFinished, TutorialStep, UiFont, button_with, hud_text, intro_closed, panel,
-        set_text, tutorial_inactive,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, SessionReset, StepGoal, TEXT_COLOR,
+        Tutorial, TutorialFinished, TutorialStep, UiFont, button_with, hud_text, intro_closed,
+        panel, set_text, tutorial_inactive,
     },
 };
 
@@ -131,9 +131,17 @@ fn unix_now() -> u64 {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Phase {
     Idle,
-    Playing { started: f64 },
-    Cleared { time: f32, generation: u64 },
-    TimeUp { since: f64 },
+    Playing {
+        started: f64,
+    },
+    Cleared {
+        time: f32,
+        generation: u64,
+        since: f64,
+    },
+    TimeUp {
+        since: f64,
+    },
 }
 
 #[derive(Resource)]
@@ -143,6 +151,32 @@ struct Challenge {
     best: Vec<f32>,
     rate: f32,
     limit: f32,
+    accuracy: f32,
+    best_accuracy: f32,
+}
+
+fn accuracy(drawn: &[IVec2], variants: &[Pattern]) -> f32 {
+    if drawn.is_empty() || drawn.len() > 400 {
+        return 0.0;
+    }
+    let drawn_set: std::collections::HashSet<IVec2> = drawn.iter().copied().collect();
+    let stride = drawn.len().div_ceil(48).max(1);
+    let mut best = 0.0f32;
+    for target in variants {
+        let cells: Vec<IVec2> = target.alive_cells().map(|c| c.as_ivec2()).collect();
+        for d in drawn.iter().step_by(stride) {
+            for t in &cells {
+                let offset = *t - *d;
+                let inter = cells
+                    .iter()
+                    .filter(|c| drawn_set.contains(&(**c - offset)))
+                    .count();
+                let union = cells.len() + drawn.len() - inter;
+                best = best.max(inter as f32 / union.max(1) as f32);
+            }
+        }
+    }
+    best
 }
 
 #[derive(Component)]
@@ -237,6 +271,8 @@ fn main() -> AppExit {
             best: Vec::new(),
             rate,
             limit,
+            accuracy: 0.0,
+            best_accuracy: 0.0,
         })
         .add_message::<Action>()
         .add_systems(Startup, setup_ui)
@@ -249,6 +285,7 @@ fn main() -> AppExit {
                 on_tutorial_finished,
                 check_match,
                 tick_limit,
+                on_session_reset,
                 sync_tool.run_if(tutorial_inactive),
                 update_hud,
             )
@@ -447,16 +484,22 @@ fn handle_actions(
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
     mut reset: MessageWriter<ResetGrid>,
+    mut session: MessageWriter<SessionReset>,
     mut tutorial: ResMut<Tutorial>,
 ) {
     for action in reader.read() {
         match action {
             Action::Start => {
                 tutorial.complete("start");
-                if matches!(challenge.phase, Phase::TimeUp { .. }) {
-                    challenge.phase = Phase::Idle;
+                if matches!(
+                    challenge.phase,
+                    Phase::TimeUp { .. } | Phase::Cleared { .. }
+                ) {
+                    session.write(SessionReset);
                     continue;
                 }
+                challenge.accuracy = 0.0;
+                challenge.best_accuracy = 0.0;
                 reset.write(ResetGrid::empty(&grid));
                 speed.rate = challenge.rate;
                 control.paused = false;
@@ -513,6 +556,11 @@ fn check_match(
     *last_seen = snapshot.received;
 
     let cells = snapshot.alive_cells(&grid, 0);
+    let acc = accuracy(&cells, &challenge.round.variants);
+    if (acc - challenge.accuracy).abs() > 0.001 {
+        challenge.accuracy = acc;
+        challenge.best_accuracy = challenge.best_accuracy.max(acc);
+    }
     if cells.len() as u32 != challenge.round.pattern.alive_count() {
         return;
     }
@@ -529,6 +577,7 @@ fn check_match(
     challenge.phase = Phase::Cleared {
         time: elapsed,
         generation: generation.0,
+        since: time.elapsed_secs_f64(),
     };
     challenge.best.push(elapsed);
     challenge
@@ -544,6 +593,7 @@ fn tick_limit(
     mut challenge: ResMut<Challenge>,
     mut control: ResMut<SimControl>,
     mut reset: MessageWriter<ResetGrid>,
+    mut session: MessageWriter<SessionReset>,
 ) {
     let now = time.elapsed_secs_f64();
     match challenge.phase {
@@ -551,13 +601,37 @@ fn tick_limit(
             control.paused = true;
             reset.write(ResetGrid::empty(&grid));
             challenge.phase = Phase::TimeUp { since: now };
-            info!("time up after {:.0}s", challenge.limit);
+            info!(
+                "time up after {:.0}s, best accuracy {:.0}%",
+                challenge.limit,
+                challenge.best_accuracy * 100.0
+            );
         }
         Phase::TimeUp { since } if now - since >= RESULT_SECS => {
-            challenge.phase = Phase::Idle;
+            session.write(SessionReset);
+        }
+        Phase::Cleared { since, .. } if now - since >= RESULT_SECS => {
+            session.write(SessionReset);
         }
         _ => {}
     }
+}
+
+fn on_session_reset(
+    mut resets: MessageReader<SessionReset>,
+    grid: Res<GridSize>,
+    mut challenge: ResMut<Challenge>,
+    mut control: ResMut<SimControl>,
+    mut reset: MessageWriter<ResetGrid>,
+) {
+    if resets.read().last().is_none() {
+        return;
+    }
+    challenge.phase = Phase::Idle;
+    challenge.accuracy = 0.0;
+    challenge.best_accuracy = 0.0;
+    control.paused = true;
+    reset.write(ResetGrid::empty(&grid));
 }
 
 fn on_tutorial_finished(
@@ -609,12 +683,15 @@ fn update_hud(
                 Phase::Playing { .. } => {
                     "진화 중… 격자 위 살아있는 셀 전체가 목표와 같아지면 판정됩니다.".into()
                 }
-                Phase::Cleared { time, generation } => format!(
-                    "성공!  기록 {time:.2}초 (세대 {generation})\n'다시 도전'으로 기록을 갱신해 보세요."
+                Phase::Cleared {
+                    time, generation, ..
+                } => format!(
+                    "성공!  기록 {time:.2}초 (세대 {generation})\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기)."
                 ),
                 Phase::TimeUp { .. } => format!(
-                    "시간 초과!  제한 시간 {:.0}초 안에 완성하지 못했습니다.\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기).",
-                    challenge.limit
+                    "시간 초과!  제한 시간 {:.0}초 안에 완성하지 못했습니다.\n최고 정확도 {:.0}%\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기).",
+                    challenge.limit,
+                    challenge.best_accuracy * 100.0
                 ),
             },
             Hud::Timer => match challenge.phase {
@@ -626,10 +703,18 @@ fn update_hud(
                 Phase::Cleared { time, .. } => format!("{time:.2} 초"),
                 Phase::TimeUp { .. } => "시간 초과".into(),
             },
-            Hud::Sim => format!(
-                "속도 {:.1} 세대/초  ·  세대 {}",
-                challenge.rate, generation.0
-            ),
+            Hud::Sim => match challenge.phase {
+                Phase::Playing { .. } => format!(
+                    "정확도 {:.0}% (최고 {:.0}%)  ·  세대 {}",
+                    challenge.accuracy * 100.0,
+                    challenge.best_accuracy * 100.0,
+                    generation.0
+                ),
+                _ => format!(
+                    "속도 {:.1} 세대/초  ·  세대 {}",
+                    challenge.rate, generation.0
+                ),
+            },
             Hud::Best => {
                 let mut s = String::from("이번 라운드 최고 기록");
                 if challenge.best.is_empty() {
@@ -653,8 +738,7 @@ fn update_hud(
                     match challenge.phase {
                         Phase::Idle => "시작 (Space)",
                         Phase::Playing { .. } => "처음부터 (Space)",
-                        Phase::Cleared { .. } => "다시 도전 (Space)",
-                        Phase::TimeUp { .. } => "처음으로 (Space)",
+                        Phase::Cleared { .. } | Phase::TimeUp { .. } => "처음으로 (Space)",
                     },
                 );
             }

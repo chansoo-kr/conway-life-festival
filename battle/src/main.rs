@@ -13,11 +13,13 @@ use conway_core::{
         SimConfig, SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, StepGoal, TEXT_COLOR,
-        Tutorial, TutorialFinished, TutorialStep, UiFont, button_styled, button_with, hud_text,
-        intro_closed, panel, set_text,
+        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
+        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStep, UiFont, button_styled, button_with,
+        hud_text, intro_closed, panel, set_text,
     },
 };
+
+const RESULT_SECS: f64 = 15.0;
 
 const GRID: UVec2 = UVec2::new(160, 90);
 const TOP_BAR_H: f32 = 64.0;
@@ -47,6 +49,7 @@ enum Phase {
     Result {
         winner: Option<u32>,
         counts: [u32; 2],
+        at: f64,
     },
 }
 
@@ -129,6 +132,7 @@ enum Action {
     Ready,
     Fast,
     Restart,
+    Home,
     Arsenal(usize),
     FlipH,
     FlipV,
@@ -197,6 +201,7 @@ fn main() -> AppExit {
             (
                 keyboard_shortcuts.run_if(intro_closed),
                 on_tutorial_finished,
+                on_session_reset,
                 handle_actions,
                 handle_paint,
                 tick_phase,
@@ -284,7 +289,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
                 },
             ))
             .observe(|_: On<Pointer<Click>>, mut w: MessageWriter<Action>| {
-                w.write(Action::Restart);
+                w.write(Action::Home);
             });
         });
 
@@ -434,7 +439,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
                     ButtonColors::accent(),
                 ))
                 .observe(|_: On<Pointer<Click>>, mut w: MessageWriter<Action>| {
-                    w.write(Action::Restart);
+                    w.write(Action::Home);
                 });
             });
         });
@@ -475,7 +480,7 @@ fn keyboard_shortcuts(
         writer.write(Action::Fast);
     }
     if keys.just_pressed(KeyCode::KeyR) && matches!(battle.phase, Phase::Result { .. }) {
-        writer.write(Action::Restart);
+        writer.write(Action::Home);
     }
     if keys.just_pressed(KeyCode::KeyH) {
         writer.write(Action::FlipH);
@@ -534,11 +539,15 @@ fn handle_actions(
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
     mut reset: MessageWriter<ResetGrid>,
+    mut session: MessageWriter<SessionReset>,
     mut tutorial: ResMut<Tutorial>,
 ) {
     let now = time.elapsed_secs_f64();
     for action in reader.read() {
         match action {
+            Action::Home => {
+                session.write(SessionReset);
+            }
             Action::Ready => {
                 tutorial.complete("ready");
                 if matches!(battle.phase, Phase::Setup { .. }) {
@@ -555,19 +564,14 @@ fn handle_actions(
                 }
             }
             Action::Restart => {
-                reset.write(ResetGrid::empty(&grid));
-                battle.mirror.clear();
-                battle.placed = [0, 0];
-                battle.live = [0, 0];
-                battle.flip_h = false;
-                battle.flip_v = false;
-                battle.arsenal = 0;
-                battle.phase = Phase::Setup {
-                    player: 0,
-                    deadline: now + SETUP_SECS,
-                };
-                control.paused = true;
-                speed.rate = BATTLE_RATE;
+                restart(
+                    &mut battle,
+                    &grid,
+                    &mut control,
+                    &mut speed,
+                    &mut reset,
+                    now + SETUP_SECS,
+                );
                 battle.notify(now, "새 경기! 플레이어 1부터 배치하세요.");
             }
             Action::Arsenal(i) => {
@@ -655,6 +659,51 @@ fn handle_paint(
     }
 }
 
+fn restart(
+    battle: &mut Battle,
+    grid: &GridSize,
+    control: &mut SimControl,
+    speed: &mut SimSpeed,
+    reset: &mut MessageWriter<ResetGrid>,
+    deadline: f64,
+) {
+    reset.write(ResetGrid::empty(grid));
+    battle.mirror.clear();
+    battle.placed = [0, 0];
+    battle.live = [0, 0];
+    battle.flip_h = false;
+    battle.flip_v = false;
+    battle.arsenal = 0;
+    battle.message.clear();
+    battle.phase = Phase::Setup {
+        player: 0,
+        deadline,
+    };
+    control.paused = true;
+    speed.rate = BATTLE_RATE;
+}
+
+fn on_session_reset(
+    mut resets: MessageReader<SessionReset>,
+    grid: Res<GridSize>,
+    mut battle: ResMut<Battle>,
+    mut control: ResMut<SimControl>,
+    mut speed: ResMut<SimSpeed>,
+    mut reset: MessageWriter<ResetGrid>,
+) {
+    if resets.read().last().is_none() {
+        return;
+    }
+    restart(
+        &mut battle,
+        &grid,
+        &mut control,
+        &mut speed,
+        &mut reset,
+        f64::MAX,
+    );
+}
+
 fn on_tutorial_finished(
     mut finished: MessageReader<TutorialFinished>,
     mut actions: MessageWriter<Action>,
@@ -673,6 +722,7 @@ fn tick_phase(
     mut battle: ResMut<Battle>,
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
+    mut session: MessageWriter<SessionReset>,
 ) {
     let now = time.elapsed_secs_f64();
     match battle.phase {
@@ -722,11 +772,19 @@ fn tick_phase(
                     std::cmp::Ordering::Equal => None,
                 };
                 battle.live = counts;
-                battle.phase = Phase::Result { winner, counts };
+                battle.phase = Phase::Result {
+                    winner,
+                    counts,
+                    at: now,
+                };
                 info!("result: P1 {} vs P2 {}", counts[0], counts[1]);
             }
         }
-        Phase::Result { .. } => {}
+        Phase::Result { at, .. } => {
+            if now - at >= RESULT_SECS {
+                session.write(SessionReset);
+            }
+        }
     }
 }
 
