@@ -69,6 +69,7 @@ pub const PANEL_BG: Color = Color::srgba(0.09, 0.10, 0.13, 0.92);
 pub const TEXT_COLOR: Color = Color::srgb(0.92, 0.93, 0.95);
 pub const MUTED_COLOR: Color = Color::srgb(0.65, 0.68, 0.74);
 pub const ACCENT: Color = Color::srgb(0.35, 0.85, 0.55);
+pub const TOP_RIGHT_RESERVE: f32 = 330.0;
 
 #[derive(Component, Clone, Copy, Debug)]
 pub struct ButtonColors {

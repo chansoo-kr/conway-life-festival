@@ -14,8 +14,8 @@ use conway_core::{
     },
     ui::{
         ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
-        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet,
-        button_styled, button_with, hud_text, intro_closed, panel, set_text,
+        TEXT_COLOR, TOP_RIGHT_RESERVE, Tutorial, TutorialFinished, TutorialStarted, TutorialStep,
+        UiFont, UiSet, button_styled, button_with, hud_text, intro_closed, panel, set_text,
     },
 };
 
@@ -248,7 +248,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             flex_direction: FlexDirection::Row,
             align_items: AlignItems::Center,
             column_gap: px(14),
-            padding: UiRect::axes(px(14), px(8)),
+            padding: UiRect::new(px(14), px(TOP_RIGHT_RESERVE), px(8), px(8)),
             ..default()
         }))
         .with_children(|bar| {
@@ -277,19 +277,6 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             ))
             .observe(|_: On<Pointer<Click>>, mut w: MessageWriter<Action>| {
                 w.write(Action::Fast);
-            });
-            bar.spawn(button_styled(
-                &font,
-                "다시 시작",
-                17.0,
-                ButtonColors::danger(),
-                Node {
-                    margin: UiRect::right(px(150)),
-                    ..default()
-                },
-            ))
-            .observe(|_: On<Pointer<Click>>, mut w: MessageWriter<Action>| {
-                w.write(Action::Home);
             });
         });
 
