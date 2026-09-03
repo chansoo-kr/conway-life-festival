@@ -1,4 +1,4 @@
-#N 페르마 소수 계산기 (Jason Summers)
+#N 페르마 소수 계산기
 #C This is a Fermat prime calculator, rigged to self-destruct and stop
 #C growing if any Fermat primes over 65537 turn up. Since the
 #C existence of such primes is an unsolved problem in mathematics,

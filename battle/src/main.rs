@@ -13,9 +13,9 @@ use conway_core::{
         SimConfig, SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
-        TEXT_COLOR, TOP_RIGHT_RESERVE, Tutorial, TutorialFinished, TutorialStarted, TutorialStep,
-        UiFont, UiSet, button_styled, button_with, hud_text, intro_closed, panel, set_text,
+        ACCENT, ButtonColors, FestivalUiPlugin, Intro, MUTED_COLOR, Selected, SessionReset,
+        TEXT_COLOR, TOP_RIGHT_RESERVE, UiFont, UiSet, button_styled, button_with, card_frame,
+        hud_text, intro_closed, panel, set_text, title_text,
     },
 };
 
@@ -170,9 +170,7 @@ fn main() -> AppExit {
                 "1 vs 1 대전",
                 "두 사람이 차례로 자기 진영에 생명을 배치한 뒤, 600세대 동안 벌어지는 생존 경쟁에서 \
                  더 많은 셀을 남기는 쪽이 이기는 대전 모드입니다. 새로 태어나는 셀은 부모의 다수 색을 따릅니다.",
-                tutorial_steps(),
-            )
-            .with_rules("왼쪽 초록 진영 안에서 "),
+            ),
             debug::ScreenshotPlugin {
                 name: "battle".into(),
             },
@@ -199,7 +197,6 @@ fn main() -> AppExit {
             Update,
             (
                 keyboard_shortcuts.run_if(intro_closed),
-                on_tutorial_finished,
                 on_session_reset,
                 handle_actions,
                 handle_paint,
@@ -252,7 +249,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             ..default()
         }))
         .with_children(|bar| {
-            bar.spawn(hud_text(&font, "1 vs 1 대전", 22.0, ACCENT));
+            bar.spawn(title_text(&font, "1 vs 1 대전", 21.0, TEXT_COLOR));
             bar.spawn((hud_text(&font, "", 18.0, TEXT_COLOR), Hud::Phase));
             bar.spawn((hud_text(&font, "", 18.0, TEXT_COLOR), Hud::Timer));
             bar.spawn((hud_text(&font, "", 18.0, TEXT_COLOR), Hud::Budget));
@@ -293,25 +290,23 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             ..default()
         }))
         .with_children(|side| {
-            side.spawn(hud_text(&font, "점수", 18.0, ACCENT));
+            side.spawn(title_text(&font, "점수", 15.0, MUTED_COLOR));
             for p in 0..2u32 {
                 let color = if p == 0 { P1_COLOR } else { P2_COLOR };
                 side.spawn((hud_text(&font, "", 15.0, color), Hud::Score(p)));
                 side.spawn((
                     Node {
                         width: percent(100),
-                        height: px(12),
-                        border_radius: BorderRadius::all(px(4)),
+                        height: px(10),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.14, 0.15, 0.19)),
+                    BackgroundColor(Color::srgb(0.16, 0.16, 0.175)),
                 ))
                 .with_children(|bar| {
                     bar.spawn((
                         Node {
                             width: percent(0),
                             height: percent(100),
-                            border_radius: BorderRadius::all(px(4)),
                             ..default()
                         },
                         BackgroundColor(color),
@@ -321,7 +316,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             }
 
             side.spawn((
-                hud_text(&font, "무기고", 18.0, ACCENT),
+                title_text(&font, "무기고", 15.0, MUTED_COLOR),
                 Node {
                     margin: UiRect::top(px(12)),
                     ..default()
@@ -398,20 +393,13 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
             Visibility::Hidden,
         ))
         .with_children(|root| {
-            root.spawn((
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    align_items: AlignItems::Center,
-                    row_gap: px(14),
-                    padding: UiRect::all(px(32)),
-                    border: UiRect::all(px(1)),
-                    border_radius: BorderRadius::all(px(14)),
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.11, 0.12, 0.16)),
-                BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.15)),
-                Interaction::None,
-            ))
+            root.spawn(card_frame(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: px(14),
+                padding: UiRect::axes(px(40), px(32)),
+                ..default()
+            }))
             .with_children(|card| {
                 card.spawn((hud_text(&font, "", 40.0, ACCENT), Hud::ResultTitle));
                 card.spawn((
@@ -525,7 +513,6 @@ fn handle_actions(
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
     mut session: MessageWriter<SessionReset>,
-    mut tutorial: ResMut<Tutorial>,
 ) {
     let now = time.elapsed_secs_f64();
     for action in reader.read() {
@@ -534,7 +521,6 @@ fn handle_actions(
                 session.write(SessionReset);
             }
             Action::Ready => {
-                tutorial.complete("ready");
                 if matches!(battle.phase, Phase::Setup { .. }) {
                     advance_setup(&mut battle, now, &mut control, &mut speed);
                 }
@@ -678,35 +664,12 @@ fn on_session_reset(
     );
 }
 
-fn on_tutorial_finished(
-    mut started: MessageReader<TutorialStarted>,
-    mut finished: MessageReader<TutorialFinished>,
-    grid: Res<GridSize>,
-    mut battle: ResMut<Battle>,
-    mut control: ResMut<SimControl>,
-    mut speed: ResMut<SimSpeed>,
-    mut reset: MessageWriter<ResetGrid>,
-) {
-    let began = started.read().last().is_some();
-    let ended = finished.read().last().is_some();
-    if began || ended {
-        restart(
-            &mut battle,
-            &grid,
-            &mut control,
-            &mut speed,
-            &mut reset,
-            f64::MAX,
-        );
-    }
-}
-
 fn tick_phase(
     time: Res<Time>,
     grid: Res<GridSize>,
     generation: Res<Generation>,
     snapshot: Res<GridSnapshot>,
-    tutorial: Res<conway_core::ui::Tutorial>,
+    intro: Res<Intro>,
     mut battle: ResMut<Battle>,
     mut control: ResMut<SimControl>,
     mut speed: ResMut<SimSpeed>,
@@ -716,7 +679,7 @@ fn tick_phase(
     match battle.phase {
         Phase::Setup { player, deadline } => {
             if deadline == f64::MAX {
-                if !tutorial.is_showing() {
+                if !intro.open {
                     battle.phase = Phase::Setup {
                         player,
                         deadline: now + SETUP_SECS,
@@ -769,7 +732,7 @@ fn tick_phase(
             }
         }
         Phase::Result { at, .. } => {
-            if now - at >= RESULT_SECS && !tutorial.is_showing() {
+            if now - at >= RESULT_SECS && !intro.open {
                 session.write(SessionReset);
             }
         }
@@ -982,43 +945,4 @@ fn update_hud(
             *visibility = v;
         }
     }
-}
-
-fn tutorial_steps() -> Vec<TutorialStep> {
-    vec![
-        TutorialStep::new(
-            "진영과 예산",
-            "왼쪽 절반은 플레이어 1(초록), 오른쪽 절반은 플레이어 2(주황)의 진영입니다. 각자 60초 동안 60셀 예산으로 자기 진영에만 생명을 놓습니다.\n\
-             상단에 남은 시간과 예산이 표시됩니다.",
-            StepGoal::Info,
-        ),
-        TutorialStep::new(
-            "직접 배치",
-            "왼쪽 초록 진영 안에 셀 5개를 놓아 보세요. 오른쪽 클릭으로 되돌리면 예산이 돌아옵니다. 상대 진영에는 놓을 수 없습니다.",
-            StepGoal::PaintCells(5),
-        ),
-        TutorialStep::new(
-            "무기고 사용",
-            "왼쪽 무기고에서 '글라이더'(숫자 키 2)를 고르고 초록 진영을 클릭해 찍어 보세요. H / V 키로 방향을 뒤집을 수 있습니다.\n\
-             플레이어 2의 스탬프는 자동으로 좌우 반전되어 왼쪽을 향합니다.",
-            StepGoal::Stamp(1),
-        ),
-        TutorialStep::new(
-            "준비 완료",
-            "배치가 끝나면 '준비 완료'(Enter)로 차례를 넘깁니다. 지금 눌러 보세요. 플레이어 2 차례가 되고, 한 번 더 누르면 전투가 시작됩니다.",
-            StepGoal::Custom("ready"),
-        ),
-        TutorialStep::new(
-            "전투와 색 다수결",
-            "'준비 완료'를 한 번 더 눌러 전투를 시작하고, 30세대가 지나는 것을 지켜보세요.\n\
-             새로 태어나는 셀은 부모 3개 중 더 많은 색을 따릅니다(초록 2 + 주황 1 → 초록). 왼쪽 점수 바가 실시간 셀 수입니다.",
-            StepGoal::Generations(30),
-        ),
-        TutorialStep::new(
-            "승패",
-            "600세대가 지나면 살아남은 셀이 많은 쪽이 이깁니다. 'F'로 빨리 감기, 결과 후 'R'로 다시 시작합니다.\n\
-             격자 가장자리는 반대편과 이어져 있으니 뒤에서 오는 글라이더도 조심하세요. 튜토리얼을 마치면 새 경기가 시작됩니다.",
-            StepGoal::Info,
-        ),
-    ]
 }

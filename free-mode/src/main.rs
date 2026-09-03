@@ -13,9 +13,8 @@ use conway_core::{
         SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, StepGoal,
-        TEXT_COLOR, Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet,
-        button_styled, button_with, hud_text, intro_closed, panel, set_text,
+        ButtonColors, FestivalUiPlugin, MUTED_COLOR, Selected, SessionReset, TEXT_COLOR, UiFont,
+        UiSet, button_styled, button_with, hud_text, intro_closed, panel, set_text, title_text,
     },
 };
 
@@ -126,9 +125,7 @@ fn main() -> AppExit {
                 "자유 모드",
                 "격자에 자유롭게 생명을 그리고, 우주선·글라이더 건·시계·컴퓨터 같은 프리셋을 불러와 \
                  마음껏 관찰하고 실험하는 모드입니다. 정해진 목표는 없습니다.",
-                tutorial_steps(),
-            )
-            .with_rules(""),
+            ),
             debug::ScreenshotPlugin {
                 name: "free_mode".into(),
             },
@@ -149,7 +146,6 @@ fn main() -> AppExit {
                 keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
                 on_session_reset,
-                on_tutorial_events,
                 handle_dropped_rle,
                 update_hud,
             )
@@ -208,7 +204,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, presets: Res<Presets>) {
         }))
         .with_children(|bar| {
             bar.spawn((
-                hud_text(&font, "자유 모드", 22.0, ACCENT),
+                title_text(&font, "자유 모드", 21.0, TEXT_COLOR),
                 Node {
                     margin: UiRect::right(px(14)),
                     ..default()
@@ -281,7 +277,7 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, presets: Res<Presets>) {
             ..default()
         }))
         .with_children(|side| {
-            side.spawn(hud_text(&font, "프리셋", 20.0, ACCENT));
+            side.spawn(title_text(&font, "프리셋", 15.0, MUTED_COLOR));
             side.spawn(hud_text(
                 &font,
                 "클릭: 중앙에 로드 / 스탬프: 클릭한 곳에 찍기",
@@ -407,27 +403,6 @@ fn on_session_reset(
     }
 }
 
-fn on_tutorial_events(
-    mut started: MessageReader<TutorialStarted>,
-    mut finished: MessageReader<TutorialFinished>,
-    initial: Res<InitialState>,
-    grid: Res<GridSize>,
-    mut reset: MessageWriter<ResetGrid>,
-    mut actions: MessageWriter<Action>,
-) {
-    let began = started.read().last().is_some();
-    let ended = finished.read().last().is_some();
-    if ended {
-        reset.write(match &initial.words {
-            Some(words) => ResetGrid(words.clone()),
-            None => ResetGrid::empty(&grid),
-        });
-    }
-    if began || ended {
-        actions.write(Action::Pen);
-    }
-}
-
 fn initial_view(camera: Single<(&mut Transform, &Projection), With<MainCamera>>) {
     let (mut tf, projection) = camera.into_inner();
     if let Projection::Orthographic(o) = projection {
@@ -484,7 +459,6 @@ fn handle_actions(
     camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     preset_buttons: Query<(Entity, &PresetButton)>,
     pen_button: Query<Entity, With<PenButton>>,
-    mut tutorial: ResMut<Tutorial>,
 ) {
     let (mut cam_tf, mut projection) = camera.into_inner();
     let viewport = Vec2::new(window.width(), window.height());
@@ -533,7 +507,6 @@ fn handle_actions(
                 }
             }
             Action::SpeedUp | Action::SpeedDown => {
-                tutorial.complete("speed");
                 let idx = RATES
                     .iter()
                     .position(|r| (*r - speed.rate).abs() < 0.01)
@@ -562,7 +535,6 @@ fn handle_actions(
                 TOP_BAR_H,
             ),
             Action::LoadPreset(i) => {
-                tutorial.complete("preset");
                 let Some(preset) = presets.0.get(*i) else {
                     continue;
                 };
@@ -695,40 +667,4 @@ fn update_hud(
             }
         }
     }
-}
-
-fn tutorial_steps() -> Vec<TutorialStep> {
-    vec![
-        TutorialStep::new(
-            "프리셋 불러오기",
-            "왼쪽 목록에서 '글라이더 (이동)'을 클릭해 보세요. 격자 중앙에 글라이더가 놓이고 카메라가 맞춰집니다.",
-            StepGoal::Custom("preset"),
-        ),
-        TutorialStep::new(
-            "재생하기",
-            "상단 '재생' 버튼이나 Space 키로 시뮬레이션을 켜 보세요. 글라이더가 대각선으로 날아갑니다.",
-            StepGoal::Generations(20),
-        ),
-        TutorialStep::new(
-            "속도 조절",
-            "'속도 +' 버튼이나 ] 키로 속도를 올려 보세요. [ 키로 다시 늦출 수 있습니다 (1 ~ 2048 세대/초).",
-            StepGoal::Custom("speed"),
-        ),
-        TutorialStep::new(
-            "확대 · 축소",
-            "격자 위에서 마우스 휠을 굴려 확대하거나 축소해 보세요. W A S D 나 가운데 버튼 드래그로 이동하고, F 키로 전체를 봅니다.",
-            StepGoal::Zoom,
-        ),
-        TutorialStep::new(
-            "스탬프 찍기",
-            "프리셋 옆 '스탬프' 버튼을 고른 뒤 격자를 클릭하면 그 자리에 패턴이 찍힙니다. 아무 프리셋이나 하나 찍어 보세요. 'P' 키로 펜 모드로 돌아옵니다.",
-            StepGoal::Stamp(1),
-        ),
-        TutorialStep::new(
-            "초대형 프리셋",
-            "목록 아래쪽에는 시계, ALU·RAM을 갖춘 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 같은 초대형 패턴이 있습니다.\n\
-             불러오면 속도가 자동으로 올라가니, 휠로 확대해 회로 속 글라이더 신호를 구경해 보세요. 이제 자유롭게 실험하세요!",
-            StepGoal::Info,
-        ),
-    ]
 }

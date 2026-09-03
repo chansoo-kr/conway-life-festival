@@ -1,4 +1,4 @@
-#N 쌍둥이 소수 계산기 (Dean Hickerson)
+#N 쌍둥이 소수 계산기
 #C Twin prime generator
 #C A LWSS escapes past the p240 gun about generation 720n+420 iff
 #C both 6n-1 and 6n+1 are prime.

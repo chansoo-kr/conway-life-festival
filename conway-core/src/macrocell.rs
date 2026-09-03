@@ -16,7 +16,7 @@ enum Node {
     Inner { level: u32, children: [usize; 4] },
 }
 
-pub fn parse_macrocell(text: &str) -> Result<Pattern, String> {
+pub fn parse_macrocell_cells(text: &str) -> Result<Vec<IVec2>, String> {
     let mut nodes: Vec<Node> = Vec::new();
     for (line_no, line) in text.lines().enumerate() {
         let l = line.trim();
@@ -80,6 +80,11 @@ pub fn parse_macrocell(text: &str) -> Result<Pattern, String> {
     if cells.is_empty() {
         return Err("no live cells".into());
     }
+    Ok(cells)
+}
+
+pub fn parse_macrocell(text: &str) -> Result<Pattern, String> {
+    let mut cells = parse_macrocell_cells(text)?;
     if bounding_area(&cells) > MAX_AREA {
         cells = crop_to_core(cells);
     }

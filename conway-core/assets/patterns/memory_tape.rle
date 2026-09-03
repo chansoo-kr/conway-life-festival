@@ -1,4 +1,4 @@
-#N 메모리 테이프 — 구성기용 저장 장치 (Dave Greene)
+#N 프로그램 구성기 (메모리 테이프)
 #C Prototype programmable constructor reads a construction
 #C  program from binary bits stored on a diagonal "tape",
 #C  and uses this information to construct an output pattern.

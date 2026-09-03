@@ -1,0 +1,10 @@
+[package]
+name = "tutorial"
+description = "축제 부스 #0: 생명 게임 규칙과 조작을 직접 해 보며 배우는 튜토리얼"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+conway-core.workspace = true

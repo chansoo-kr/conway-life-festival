@@ -1,4 +1,4 @@
-#N 단위 생명 세포 — 생명 게임 속 생명 게임 (David Bell)
+#N 생명 게임 속 생명 게임
 #C Width-512 Unit Life Cell, rebuilt from David Bell's original
 #C width-500 version to better match Golly's qlife/hlife algorithm.
 #C Very minor changes to circuitry; period is still 5760 generations.

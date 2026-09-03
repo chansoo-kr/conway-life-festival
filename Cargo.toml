@@ -5,6 +5,7 @@ members = [
     "free-mode",   # 1) 자유 모드 + 프리셋 체험
     "challenge",   # 2) 실시간 시뮬레이션 위에서 목표 모양 빠르게 맞추기
     "battle",      # 3) 1 vs 1 대전
+    "tutorial",    # 0) 규칙·조작을 직접 해 보며 배우는 독립 튜토리얼
 ]
 
 [workspace.package]

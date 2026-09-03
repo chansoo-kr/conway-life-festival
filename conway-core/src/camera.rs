@@ -105,11 +105,12 @@ pub fn fit_camera(
 pub fn zoom_at_cursor(
     control: Res<CameraControl>,
     scroll: Res<AccumulatedMouseScroll>,
+    nodes: Query<&Interaction, With<Node>>,
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&mut Transform, &mut Projection), With<MainCamera>>,
     mut activity: ResMut<CameraActivity>,
 ) {
-    if !control.zoom || scroll.delta.y == 0.0 {
+    if !control.zoom || scroll.delta.y == 0.0 || crate::paint::pointer_over_ui(&nodes) {
         return;
     }
     activity.zoomed = true;

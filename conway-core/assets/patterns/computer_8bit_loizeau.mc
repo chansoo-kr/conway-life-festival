@@ -1,4 +1,4 @@
-#N 8비트 컴퓨터 — ALU·RAM·프로그램 메모리 (Nicolas Loizeau)
+#N 8비트 컴퓨터
 [M2] (golly 2.7)
 #R B3/S23
 #G 1426980

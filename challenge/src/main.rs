@@ -15,9 +15,9 @@ use conway_core::{
         SimControl, SimSet, SimSpeed,
     },
     ui::{
-        ACCENT, ButtonColors, FestivalUiPlugin, MUTED_COLOR, SessionReset, StepGoal, TEXT_COLOR,
-        Tutorial, TutorialFinished, TutorialStarted, TutorialStep, UiFont, UiSet, button_with,
-        hud_text, intro_closed, panel, set_text, tutorial_inactive,
+        ACCENT, ButtonColors, FestivalUiPlugin, INSET_BG, LINE, MUTED_COLOR, SessionReset,
+        TEXT_COLOR, UiFont, UiSet, button_with, hud_text, intro_closed, panel, set_text,
+        title_text,
     },
 };
 
@@ -257,9 +257,7 @@ fn main() -> AppExit {
                 "실시간 모양 맞추기",
                 "30분마다 바뀌는 목표 모양을, 실시간으로 계속 진화하는 격자 위에 최대한 빨리 만들어 내는 \
                  타임 어택 모드입니다. 내가 그린 셀도 규칙대로 변하니 진화를 피하거나 이용해야 합니다.",
-                tutorial_steps(),
-            )
-            .with_rules(""),
+            ),
             debug::ScreenshotPlugin {
                 name: "challenge".into(),
             },
@@ -282,11 +280,10 @@ fn main() -> AppExit {
                 poll_round,
                 keyboard_shortcuts.run_if(intro_closed),
                 handle_actions,
-                on_tutorial_finished,
                 check_match,
-                tick_limit.run_if(tutorial_inactive),
+                tick_limit.run_if(intro_closed),
                 on_session_reset,
-                sync_tool.run_if(tutorial_inactive),
+                sync_tool.run_if(intro_closed),
                 update_hud,
             )
                 .chain()
@@ -311,10 +308,10 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, challenge: Res<Challenge>
             ..default()
         }))
         .with_children(|side| {
-            side.spawn(hud_text(&font, "실시간 모양 맞추기", 24.0, ACCENT));
+            side.spawn(title_text(&font, "실시간 모양 맞추기", 22.0, TEXT_COLOR));
             side.spawn((hud_text(&font, "", 17.0, TEXT_COLOR), Hud::RoundName));
 
-            side.spawn(hud_text(&font, "목표 모양", 15.0, MUTED_COLOR));
+            side.spawn(title_text(&font, "목표 모양", 15.0, MUTED_COLOR));
             let mut preview = side.spawn((
                 PreviewBox,
                 Node {
@@ -322,11 +319,10 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, challenge: Res<Challenge>
                     padding: UiRect::all(px(10)),
                     align_self: AlignSelf::FlexStart,
                     border: UiRect::all(px(1)),
-                    border_radius: BorderRadius::all(px(6)),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.06, 0.07, 0.09)),
-                BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.15)),
+                BackgroundColor(INSET_BG),
+                BorderColor::all(LINE),
             ));
             preview.with_children(|p| build_preview(p, &preview_pattern));
 
@@ -425,7 +421,7 @@ fn build_preview(parent: &mut ChildSpawnerCommands<'_>, pattern: &Pattern) {
                         BackgroundColor(if alive {
                             Color::srgb(0.95, 0.80, 0.30)
                         } else {
-                            Color::srgb(0.12, 0.13, 0.16)
+                            Color::srgb(0.13, 0.13, 0.14)
                         }),
                     ));
                 }
@@ -486,12 +482,10 @@ fn handle_actions(
     mut speed: ResMut<SimSpeed>,
     mut reset: MessageWriter<ResetGrid>,
     mut session: MessageWriter<SessionReset>,
-    mut tutorial: ResMut<Tutorial>,
 ) {
     for action in reader.read() {
         match action {
             Action::Start => {
-                tutorial.complete("start");
                 if matches!(
                     challenge.phase,
                     Phase::TimeUp { .. } | Phase::Cleared { .. }
@@ -509,7 +503,6 @@ fn handle_actions(
                 };
             }
             Action::Clear => {
-                tutorial.complete("clear");
                 if matches!(challenge.phase, Phase::Playing { .. }) {
                     reset.write(ResetGrid::empty(&grid));
                 }
@@ -635,28 +628,6 @@ fn on_session_reset(
     reset.write(ResetGrid::empty(&grid));
 }
 
-fn on_tutorial_finished(
-    mut started: MessageReader<TutorialStarted>,
-    mut finished: MessageReader<TutorialFinished>,
-    grid: Res<GridSize>,
-    mut challenge: ResMut<Challenge>,
-    mut control: ResMut<SimControl>,
-    mut reset: MessageWriter<ResetGrid>,
-) {
-    let began = started.read().last().is_some();
-    let ended = finished.read().last().is_some();
-    if !began && !ended {
-        return;
-    }
-    challenge.phase = Phase::Idle;
-    challenge.accuracy = 0.0;
-    challenge.best_accuracy = 0.0;
-    if ended {
-        control.paused = true;
-        reset.write(ResetGrid::empty(&grid));
-    }
-}
-
 fn sync_tool(challenge: Res<Challenge>, mut tool: ResMut<PaintTool>) {
     let enabled = matches!(challenge.phase, Phase::Playing { .. });
     if tool.enabled != enabled {
@@ -752,39 +723,4 @@ fn update_hud(
             }
         }
     }
-}
-
-fn tutorial_steps() -> Vec<TutorialStep> {
-    vec![
-        TutorialStep::new(
-            "목표 모양 확인",
-            "왼쪽 패널의 '목표 모양'이 이번 라운드의 문제입니다. 격자 어디든 이 모양과 똑같은 모양(살아있는 셀 전체)을 만들면 성공입니다. 돌리거나 뒤집은 모양도 인정됩니다.\n\
-             한 번 도전할 때 제한 시간이 있고(기본 60초), 시간이 다 되면 결과를 보여 준 뒤 처음 화면으로 돌아갑니다.\n\
-             문제는 30분마다 바뀌고, 패널 아래에 다음 문제까지 남은 시간이 표시됩니다.",
-            StepGoal::Info,
-        ),
-        TutorialStep::new(
-            "라운드 시작",
-            "'시작' 버튼(또는 Space)을 눌러 보세요. 타이머와 함께 시뮬레이션이 실시간으로 돌아가기 시작합니다.",
-            StepGoal::Custom("start"),
-        ),
-        TutorialStep::new(
-            "진화하는 격자에 그리기",
-            "격자에 셀을 5개 그려 보세요. 그린 셀이 규칙대로 태어나고 죽는 것을 보세요.\n\
-             혼자 떨어진 셀은 다음 세대에 사라지고, 셀 3개가 일렬이면 깜빡이가 됩니다. 패널의 '세대' 숫자가 오르는 리듬을 눈여겨 두세요.",
-            StepGoal::PaintCells(5),
-        ),
-        TutorialStep::new(
-            "지우고 다시",
-            "엉망이 됐으면 '지우기'(C)로 격자를 비울 수 있습니다. 타이머는 계속 갑니다. 한 번 눌러 보세요.",
-            StepGoal::Custom("clear"),
-        ),
-        TutorialStep::new(
-            "판정과 기록",
-            "격자 위 살아있는 셀 전체가 목표와 같아지는 순간 자동으로 판정되어 기록이 남고, 그 순간의 격자가 고정됩니다.\n\
-             정지 패턴은 완성 순서를, 움직이는 패턴은 완성되는 순간을 노리세요. 제한 시간 안에 못 만들면 처음으로 돌아갑니다.\n\
-             튜토리얼을 마치면 라운드가 처음 상태로 돌아갑니다. 행운을 빕니다!",
-            StepGoal::Info,
-        ),
-    ]
 }

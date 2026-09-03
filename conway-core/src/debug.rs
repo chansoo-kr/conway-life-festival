@@ -8,7 +8,7 @@ use crate::{
     grid::{GridSize, PendingEdits, pack_words},
     rle::Pattern,
     sim::{Generation, GridSnapshot, SimControl, SimReady, SimStats},
-    ui::Tutorial,
+    ui::{Intro, IntroDismissed},
 };
 
 pub fn screenshot_dir() -> Option<String> {
@@ -36,7 +36,8 @@ impl Plugin for ScreenshotPlugin {
             move |mut commands: Commands,
                   frame: Res<FrameCount>,
                   time: Res<Time<Real>>,
-                  tutorial: Option<ResMut<Tutorial>>,
+                  intro: Option<ResMut<Intro>>,
+                  mut dismissed: MessageWriter<IntroDismissed>,
                   mut exit: MessageWriter<AppExit>| {
                 if frame.0.is_multiple_of(100) {
                     info!(
@@ -55,20 +56,11 @@ impl Plugin for ScreenshotPlugin {
                             .observe(save_to_disk(path));
                     }
                     100 => {
-                        if let Some(mut t) = tutorial {
-                            t.start();
-                        }
-                    }
-                    110 => {
-                        let path = format!("{dir}/{name}_tutorial.png");
-                        info!("screenshot: {path}");
-                        commands
-                            .spawn(Screenshot::primary_window())
-                            .observe(save_to_disk(path));
-                    }
-                    120 => {
-                        if let Some(mut t) = tutorial {
-                            t.dismiss();
+                        if let Some(mut intro) = intro
+                            && intro.open
+                        {
+                            intro.open = false;
+                            dismissed.write(IntroDismissed);
                         }
                     }
                     700 => {
@@ -152,7 +144,7 @@ fn run_selftest(
     mut state: ResMut<SelfTestState>,
     mut edits: ResMut<PendingEdits>,
     mut control: ResMut<SimControl>,
-    tutorial: Option<ResMut<Tutorial>>,
+    intro: Option<ResMut<Intro>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     match state.stage {
@@ -160,8 +152,8 @@ fn run_selftest(
             if !ready.get() || frame.0 < 30 {
                 return;
             }
-            if let Some(mut t) = tutorial {
-                t.dismiss();
+            if let Some(mut intro) = intro {
+                intro.open = false;
             }
             control.paused = true;
             for (pattern, origin, plane) in &state.test.place {

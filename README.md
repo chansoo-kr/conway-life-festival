@@ -1,11 +1,13 @@
 # Conway Life Festival
 
 축제 부스용 콘웨이의 생명 게임 앱 모음 (Rust · Bevy 0.19 · GPU 컴퓨트).
-워크스페이스 안에 **공용 라이브러리 1개 + 목적별 패키지 3개**가 있으며, 모든 앱에 **튜토리얼 버튼(T)** 이 있습니다.
+워크스페이스 안에 **공용 라이브러리 1개 + 목적별 패키지 4개**가 있습니다.
+튜토리얼은 별도 앱(`tutorial`)이고, 세 모드 앱은 시작 팝업 → 플레이 → 처음으로 흐름만 갖습니다.
 
 | 패키지 | 용도 | 실행 |
 |---|---|---|
-| `conway-core` | 공용 라이브러리 (GPU 시뮬레이션, 페인팅, 카메라, UI/튜토리얼, 프리셋, 에셋) | — |
+| `conway-core` | 공용 라이브러리 (GPU 시뮬레이션, 페인팅, 카메라, UI·시작 팝업·세션 초기화, 프리셋, 에셋) | — |
+| `tutorial` | 생명 게임 규칙과 조작을 직접 해 보며 배우는 인터랙티브 튜토리얼 + 세 모드 소개 | `cargo run --release -p tutorial` |
 | `free-mode` | 자유 모드 + 프리셋 체험 (16384×16384 격자 · 시계, 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 등 초대형 프리셋 포함) | `cargo run --release -p free-mode` |
 | `challenge` | **실시간으로 진화하는 격자** 위에서 30분마다 제시되는 모양 빠르게 만들기 | `cargo run --release -p challenge` |
 | `battle` | 1 vs 1 대전 (Immigration 규칙, 색 다수결) | `cargo run --release -p battle` |
@@ -13,13 +15,18 @@
 ## 조작
 
 ### 공통
-- **시작 팝업**: 실행하면 현재 모드 설명과 함께 "튜토리얼 모드를 하시겠습니까?"가 뜹니다 (Enter 예 / Esc 아니요).
-- **튜토리얼 모드(인터랙티브)**: 화면 아래 안내 카드가 뜨고, 유저가 직접 클릭·조작해 각 단계의 목표를 달성하면 자동으로 다음 단계로 넘어갑니다.
-  모든 앱 공통으로 `1. 생명 게임 규칙`(셀 살리기/지우기, 깜빡이 만들기, 한 세대 진행, 재생) → `2. 해당 모드의 규칙`(프리셋·속도·줌·스탬프 / 라운드 시작·그리기·지우기 / 배치·무기고·준비 완료·전투) 순서입니다.
-  '건너뛰기'로 단계를 넘기거나 '종료'로 끝낼 수 있고, 우상단 버튼 또는 `T`로 언제든 다시 시작합니다. 튜토리얼이 끝나면 격자와 모드 상태가 초기화됩니다.
+- **시작 팝업**: 실행하면 현재 앱의 설명이 뜹니다. '시작'(Enter 또는 Space)으로 닫습니다.
 - 셀 그리기: **왼쪽 클릭/드래그**, 지우기: **오른쪽 클릭/드래그**
-- **처음으로(세션 초기화)**: 각 흐름이 끝나면(챌린지 결과 표시 후, 대전 결과 표시 후) 자동으로 시작 팝업과 초기 격자로 돌아가 다음 방문자를 맞습니다.
+- **처음으로(세션 초기화)**: 각 흐름이 끝나면(튜토리얼 완료, 챌린지 결과 표시 후, 대전 결과 표시 후) 자동으로 시작 팝업과 초기 격자로 돌아가 다음 방문자를 맞습니다.
   우상단 '처음으로' 버튼으로 언제든 초기화할 수 있고, 입력이 없으면 자동 초기화됩니다 (기본 180초, `--idle-reset-sec S`, 0이면 끔).
+
+### tutorial
+- 시작 팝업을 닫으면 바로 튜토리얼이 시작됩니다. 화면 아래 안내 카드가 뜨고, 직접 클릭·조작해 각 단계의 목표를 달성하면 자동으로 다음 단계로 넘어갑니다.
+- `1. 생명 게임 규칙`(생명 하나 → 사라짐 / 셋 나란히 → 깜빡이 / 2×2 네모 → 정물 / 낙서 → 붐비면 사라짐, 마지막에 규칙 정리) → `2. 조작 익히기`(지우기, 글라이더 스탬프, 재생, 속도, 줌) → `3. 축제의 세 가지 모드` 소개 순서, 약 3~4분.
+  규칙을 먼저 외우게 하지 않고 "놓고 → 한 세대 흘리고 → 무슨 일이 생겼는지 보기"로 겪게 합니다. 모양 목표 단계는 카드 안에 목표 모양 미리보기가 뜨고, 판정은 GPU readback(실제 격자)으로 합니다.
+- '건너뛰기'로 단계를 넘기고 '종료'로 끝낼 수 있습니다. 마지막 단계의 '마치기'나 '종료'를 누르면 시작 팝업으로 돌아갑니다.
+- `Space` 재생/정지 · `N` 한 세대 · `[` `]` 속도 · `C` 지우기 · `F` 전체 보기 · `P` 펜 · `G` 글라이더 스탬프 · 휠 줌, `WASD`/가운데 버튼 드래그 이동
+- 단계 정의는 [tutorial/src/main.rs](tutorial/src/main.rs)의 `steps()`, 엔진(목표 판정·카드 UI)은 [tutorial/src/engine.rs](tutorial/src/engine.rs)
 
 ### free-mode
 - `Space` 재생/정지 · `N` 한 세대 · `[` `]` 속도 (1~2048 세대/초) · `R` 보이는 영역 랜덤 · `C` 지우기 · `F` 전체 보기 · `P` 펜
@@ -53,19 +60,21 @@
 ## 구조
 
 ```
-Cargo.toml            워크스페이스 (members: conway-core, free-mode, challenge, battle)
+Cargo.toml            워크스페이스 (members: conway-core, free-mode, challenge, battle, tutorial)
 conway-core/
   src/lib.rs          공용 코어 크레이트 (conway_core) + 에셋 경로/DefaultPlugins 헬퍼
   src/sim.rs          GPU 컴퓨트 플러그인: ping-pong 버퍼, 편집 적용 pass, readback, shader def로 그리드 크기 주입
   src/grid.rs         비트 패킹 그리드, CPU 미러, 편집 큐
   src/paint.rs        마우스 그리기/스탬프 → PaintRequest
   src/camera.rs       줌/팬, 커서 → 셀 변환
-  src/ui.rs           한글 폰트 선택, 버튼/패널, 튜토리얼 오버레이
+  src/ui.rs           한글 폰트 선택, 버튼/패널/카드, 시작 팝업, 세션 초기화(처음으로·무입력)
   src/presets.rs      내장 프리셋 + assets/patterns/*.rle
   src/rle.rs          RLE 파서/변환 (+ CPU 규칙 단위 테스트)
   src/debug.rs        스크린샷/셀프 테스트 (환경 변수로만 활성)
   assets/shaders/     conway_compute.wgsl (1인용) · conway_battle_compute.wgsl (2인용) · conway_edit.wgsl · conway_grid.wgsl
   assets/patterns/    clock_pm.rle 등
+tutorial/src/main.rs  튜토리얼 앱 (격자·상단 바·단계 목록)
+tutorial/src/engine.rs 튜토리얼 엔진 (StepGoal 판정, 단계 카드 오버레이)
 free-mode/src/main.rs
 challenge/src/main.rs
 battle/src/main.rs
@@ -73,8 +82,10 @@ battle/src/main.rs
 
 ## 폰트
 
-한글 UI는 시스템 폰트 패밀리(Noto Sans KR, 맑은 고딕, Pretendard 등)를 자동으로 찾아 씁니다.
-특정 폰트를 강제하려면 `conway-core/assets/fonts/ui.ttf` 를 넣으면 됩니다.
+한글 UI는 번들된 IBM Plex Sans KR(`conway-core/assets/fonts/`, OFL 라이선스)을 씁니다.
+본문은 Regular, 제목·섹션 라벨은 SemiBold 입니다.
+다른 폰트를 강제하려면 같은 폴더에 `ui.ttf`(+ 선택으로 `ui-bold.ttf`)를 넣으면 번들 폰트보다 우선합니다.
+번들 폰트 파일이 없으면 시스템 폰트 패밀리(Pretendard, Noto Sans KR, 맑은 고딕 등)를 자동으로 찾습니다.
 
 ## 빌드 메모
 
@@ -85,5 +96,5 @@ battle/src/main.rs
 ## 검증 (디버그 환경 변수)
 
 - `CONWAY_SELFTEST=1 cargo run -p free-mode` / `-p battle` : 패턴을 찍고 40세대 진행 후 GPU readback을 기대값과 비트 단위로 비교, 종료 코드 0/1
-- `CONWAY_SCREENSHOT_DIR=<dir>` : 튜토리얼 화면과 본 화면 PNG 저장 후 종료
+- `CONWAY_SCREENSHOT_DIR=<dir>` : 시작 팝업과 본 화면 PNG 저장 후 종료
 - `cargo test -p conway-core` : RLE 파서 및 글라이더/LWSS 이동 방향 단위 테스트
