@@ -9,7 +9,7 @@
 //!
 //! 주소는 `conway-core/src/qr.rs` 가 만들고, 마지막 `k` 값이 서명입니다.
 //!
-//! 리더보드 기록은 `config::API_BASE` 의 서버에 모입니다(`worker/` 참고). 그래서 목록을
+//! 리더보드 기록은 Supabase 에 모입니다(`supabase/migrations/` 참고). 그래서 목록을
 //! 그리는 일은 비동기입니다 — 화면을 먼저 그리고, 기록이 도착하면 표만 바꿔 끼웁니다.
 
 mod config;
@@ -93,6 +93,34 @@ fn input_value(id: &str) -> String {
         .and_then(|el| el.dyn_into::<HtmlInputElement>().ok())
         .map(|el| el.value())
         .unwrap_or_default()
+}
+
+/// 눌린 버튼을 잠그고 글자를 바꿉니다(두 번 등록 방지).
+fn set_button(id: &str, label: &str, disabled: bool) {
+    let Some(el) = find(id) else { return };
+    set_text(id, label);
+    if disabled {
+        let _ = el.set_attribute("disabled", "");
+    } else {
+        let _ = el.remove_attribute("disabled");
+    }
+}
+
+/// 기록 지우기에 쓸 관리자 토큰. 없으면 한 번 물어보고 그 기기에 저장합니다.
+fn ask_admin() -> bool {
+    if !store::online() || store::admin_token().is_some() {
+        return true;
+    }
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    match window.prompt_with_message("관리자 토큰") {
+        Ok(Some(token)) if !token.trim().is_empty() => {
+            store::set_admin_token(token.trim());
+            true
+        }
+        _ => false,
+    }
 }
 
 fn go(hash: &str) {
@@ -437,32 +465,49 @@ fn bind_pay() {
     });
 }
 
+/// 기록이 도착하기 전에 깔아 두는 한 줄.
+fn loading_row(cols: usize) -> String {
+    format!("<tr><td colspan=\"{cols}\" class=\"dim\">불러오는 중…</td></tr>")
+}
+
+fn run_rows(entries: &[Run]) -> String {
+    if entries.is_empty() {
+        return "<tr><td colspan=\"3\" class=\"dim\">아직 기록이 없습니다. 스피드런 결과 QR을 찍어 주세요.</td></tr>".to_string();
+    }
+    entries
+        .iter()
+        .enumerate()
+        .map(|(i, e)| {
+            let result = if e.cleared {
+                format!("<span class=\"ok\">성공</span> {:.2}초", e.seconds())
+            } else {
+                format!("정확도 {:.0}%", e.accuracy_pct())
+            };
+            format!(
+                "<tr><td class=\"rank\">{}</td><td>{}</td><td class=\"num\">{result}</td></tr>",
+                i + 1,
+                esc(&e.name)
+            )
+        })
+        .collect()
+}
+
+/// 서버에서 기록을 받아 표만 갈아 끼웁니다. 그 사이 화면이 바뀌었으면 아무것도 하지 않습니다.
+async fn refresh_board(round_id: u64) {
+    let entries = store::load_runs(round_id).await;
+    if SHOWN_ROUND.with(|r| *r.borrow() != Some(round_id)) {
+        return;
+    }
+    if let Some(el) = find("board-list") {
+        el.set_inner_html(&run_rows(&entries));
+    }
+}
+
 fn view_board() -> String {
     let now = round::now_unix();
     let r = round::round_at(now);
     SHOWN_ROUND.with(|slot| *slot.borrow_mut() = Some(r.id));
-    let entries = store::load_runs(r.id);
-
-    let rows: String = if entries.is_empty() {
-        "<tr><td colspan=\"3\" class=\"dim\">아직 기록이 없습니다. 스피드런 결과 QR을 찍어 주세요.</td></tr>".to_string()
-    } else {
-        entries
-            .iter()
-            .enumerate()
-            .map(|(i, e)| {
-                let result = if e.cleared {
-                    format!("<span class=\"ok\">성공</span> {:.2}초", e.seconds())
-                } else {
-                    format!("정확도 {:.0}%", e.accuracy_pct())
-                };
-                format!(
-                    "<tr><td class=\"rank\">{}</td><td>{}</td><td class=\"num\">{result}</td></tr>",
-                    i + 1,
-                    esc(&e.name)
-                )
-            })
-            .collect()
-    };
+    let rows = loading_row(3);
 
     format!(
         r##"<h2 class="cmd">watch -n1 스피드런</h2>
@@ -477,29 +522,52 @@ fn view_board() -> String {
 {scan}
 <table class="list" id="board-list">{rows}</table>
 <p class="dim">성공한 기록이 걸린 시간 순으로 먼저, 그 다음 미성공 기록이 정확도 순으로 놓입니다.
-기록은 이 화면을 띄운 기기에만 쌓입니다 — 부스에서는 한 대에 띄워 두고 그 화면으로 QR을 찍어 주세요.</p>"##,
+{note}</p>"##,
         shape = shape_html(r.shape),
         name = esc(r.name),
         id = r.id,
         scan = scan_bar("기록 지우기"),
+        note = board_note(),
     )
+}
+
+/// 기록이 어디에 쌓이는지 알려 주는 한 줄.
+fn board_note() -> &'static str {
+    if store::online() {
+        "기록은 모두가 같이 보는 순위표에 올라갑니다 — 각자 폰으로 열어도 같은 화면입니다."
+    } else {
+        "지금은 서버를 쓰지 않는 설정입니다 — 기록이 이 기기에만 쌓입니다."
+    }
 }
 
 fn bind_board() {
     bind_scan();
     let round_id = round::round_at(round::now_unix()).id;
+    spawn_local(refresh_board(round_id));
     on_click("wipe", move || {
-        store::clear_runs(round_id);
-        render();
+        if !ask_admin() {
+            set_text("scan-msg", "관리자 토큰이 있어야 지울 수 있습니다.");
+            return;
+        }
+        spawn_local(async move {
+            match store::clear_runs(round_id).await {
+                Ok(()) => render(),
+                Err(err) => {
+                    if err.contains("토큰") {
+                        store::set_admin_token("");
+                    }
+                    set_text("scan-msg", &err);
+                }
+            }
+        });
     });
 }
 
-fn view_battle() -> String {
-    let entries = store::load_matches();
-    let rows: String = if entries.is_empty() {
-        "<tr><td colspan=\"4\" class=\"dim\">아직 기록이 없습니다. 전투 결과 QR을 찍어 주세요.</td></tr>".to_string()
-    } else {
-        entries
+fn match_rows(entries: &[Match]) -> String {
+    if entries.is_empty() {
+        return "<tr><td colspan=\"4\" class=\"dim\">아직 기록이 없습니다. 전투 결과 QR을 찍어 주세요.</td></tr>".to_string();
+    }
+    entries
             .iter()
             .enumerate()
             .map(|(i, m)| {
@@ -523,23 +591,47 @@ fn view_battle() -> String {
                 )
             })
             .collect()
-    };
+}
 
+async fn refresh_battle() {
+    let entries = store::load_matches().await;
+    if let Some(el) = find("battle-list") {
+        el.set_inner_html(&match_rows(&entries));
+    }
+}
+
+fn view_battle() -> String {
+    let rows = loading_row(4);
     format!(
         r##"<h2 class="cmd">watch -n1 전투</h2>
 <p class="dim">600세대를 버틴 뒤 <b>이긴 쪽이 남긴 셀이 많은 경기</b>가 위로 올라갑니다.</p>
 {scan}
 <table class="list" id="battle-list">{rows}</table>
-<p class="dim">기록은 이 화면을 띄운 기기에만 쌓입니다 — 부스에서는 한 대에 띄워 두고 그 화면으로 QR을 찍어 주세요.</p>"##,
+<p class="dim">{note}</p>"##,
         scan = scan_bar("기록 지우기"),
+        note = board_note(),
     )
 }
 
 fn bind_battle() {
     bind_scan();
+    spawn_local(refresh_battle());
     on_click("wipe", || {
-        store::clear_matches();
-        render();
+        if !ask_admin() {
+            set_text("scan-msg", "관리자 토큰이 있어야 지울 수 있습니다.");
+            return;
+        }
+        spawn_local(async {
+            match store::clear_matches().await {
+                Ok(()) => render(),
+                Err(err) => {
+                    if err.contains("토큰") {
+                        store::set_admin_token("");
+                    }
+                    set_text("scan-msg", &err);
+                }
+            }
+        });
     });
 }
 
@@ -612,6 +704,7 @@ fn view_run_result(r: &Route) -> String {
   <div class="field"><label for="who">이름</label><input id="who" maxlength="12" placeholder="리더보드에 표시할 이름" autocomplete="off"></div>
   <button id="submit" class="btn">리더보드에 등록</button>
 </div>
+<p id="submit-msg" class="err"></p>
 <p class="links"><a href="#/board">등록하지 않고 리더보드 보기</a></p>"##,
         shape = shape_html(shape.shape),
         id = round_id,
@@ -623,6 +716,9 @@ fn bind_run_result(r: &Route) {
     let Ok((round_id, entry)) = parse_run(r) else {
         return;
     };
+    // 서명이 붙은 질의문자열을 그대로 서버에 넘깁니다 — 숫자는 서버가 다시 읽습니다.
+    let signed = r.signed.clone();
+    let key = r.get("k").unwrap_or_default().to_string();
     on_click("submit", move || {
         let now = round::now_unix();
         if round::round_at(now).id != round_id {
@@ -632,8 +728,18 @@ fn bind_run_result(r: &Route) {
         let mut entry = entry.clone();
         entry.name = store::clean_name(&input_value("who"));
         entry.at = now;
-        store::add_run(round_id, entry);
-        go("/board");
+        let (signed, key) = (signed.clone(), key.clone());
+        set_text("submit-msg", "");
+        set_button("submit", "등록 중…", true);
+        spawn_local(async move {
+            match store::submit_run(round_id, &signed, &key, &entry).await {
+                Ok(()) => go("/board"),
+                Err(err) => {
+                    set_text("submit-msg", &err);
+                    set_button("submit", "리더보드에 등록", false);
+                }
+            }
+        });
     });
 }
 
@@ -707,6 +813,7 @@ fn view_match_result(r: &Route) -> String {
   <div class="field"><label for="foe">{second}</label><input id="foe" maxlength="12" placeholder="이름" autocomplete="off"></div>
   <button id="submit" class="btn">리더보드에 등록</button>
 </div>
+<p id="submit-msg" class="err"></p>
 <p class="links"><a href="#/battle">등록하지 않고 리더보드 보기</a></p>"##,
         gens = m.generations,
         first = esc(first_label),
@@ -716,13 +823,25 @@ fn view_match_result(r: &Route) -> String {
 
 fn bind_match_result(r: &Route) {
     let Ok(m) = parse_match(r) else { return };
+    let signed = r.signed.clone();
+    let key = r.get("k").unwrap_or_default().to_string();
     on_click("submit", move || {
         let mut m = m.clone();
         m.winner = store::clean_name(&input_value("who"));
         m.loser = store::clean_name(&input_value("foe"));
         m.at = round::now_unix();
-        store::add_match(m);
-        go("/battle");
+        let (signed, key) = (signed.clone(), key.clone());
+        set_text("submit-msg", "");
+        set_button("submit", "등록 중…", true);
+        spawn_local(async move {
+            match store::submit_match(&signed, &key, &m).await {
+                Ok(()) => go("/battle"),
+                Err(err) => {
+                    set_text("submit-msg", &err);
+                    set_button("submit", "리더보드에 등록", false);
+                }
+            }
+        });
     });
 }
 

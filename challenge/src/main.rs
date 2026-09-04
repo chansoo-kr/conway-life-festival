@@ -812,3 +812,64 @@ fn update_hud(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `web/src/round.rs` 의 `POOL` 과 **순서·이름·모양이 모두** 같아야 합니다.
+    /// 하나라도 어긋나면 같은 라운드에서 앱과 웹이 다른 모양을 가리킵니다.
+    const WEB_POOL: &[(&str, &[&str])] = &[
+        ("블록", &["oo", "oo"]),
+        ("벌집", &[".oo.", "o..o", ".oo."]),
+        ("빵", &[".oo.", "o..o", ".o.o", "..o."]),
+        ("보트", &["oo.", "o.o", ".o."]),
+        ("튜브", &[".o.", "o.o", ".o."]),
+        ("깜빡이", &["ooo"]),
+        ("두꺼비", &[".ooo", "ooo."]),
+        ("비컨", &["oo..", "oo..", "..oo", "..oo"]),
+        ("글라이더", &[".o.", "..o", "ooo"]),
+        ("이터", &["oo..", "o.o.", "..o.", "..oo"]),
+    ];
+
+    #[test]
+    fn web_pool_matches_the_challenge_pool() {
+        let source = LocalSource::new(DEFAULT_INTERVAL_SECS);
+        assert_eq!(source.pool.len(), WEB_POOL.len(), "목록 길이");
+        for (i, (name, pattern)) in source.pool.iter().enumerate() {
+            let (web_name, web_shape) = WEB_POOL[i];
+            assert_eq!(name, web_name, "{i}번째 이름");
+            assert_eq!(pattern.height, web_shape.len() as u32, "{web_name} 높이");
+            for (y, row) in web_shape.iter().enumerate() {
+                assert_eq!(pattern.width, row.chars().count() as u32, "{web_name} 너비");
+                for (x, c) in row.chars().enumerate() {
+                    assert_eq!(
+                        pattern.get(x as u32, y as u32),
+                        c == 'o',
+                        "{web_name} ({x},{y})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 주기가 같아야 QR 안의 라운드 번호가 웹의 라운드와 맞습니다.
+    /// 여기를 바꾸면 `web/src/config.rs` 의 `ROUND_INTERVAL_SECS` 도 같이 바꿔야 합니다.
+    #[test]
+    fn the_round_interval_matches_the_web() {
+        assert_eq!(DEFAULT_INTERVAL_SECS, 60 * 60);
+    }
+
+    /// 같은 시각이면 앱과 웹이 같은 라운드·같은 모양을 고릅니다.
+    #[test]
+    fn rounds_pick_the_same_shape_as_the_web() {
+        let source = LocalSource::new(DEFAULT_INTERVAL_SECS);
+        for now in [0u64, 1_756_000_000, 1_756_003_599, 1_756_003_600, 2_000_000_000] {
+            let round = source.current_round(now);
+            assert_eq!(round.id, now / 3600);
+            // 웹과 같은 계산: POOL[splitmix64(id) % POOL.len()]
+            let expected = WEB_POOL[(splitmix64(round.id) % WEB_POOL.len() as u64) as usize].0;
+            assert_eq!(round.name, expected, "round {}", round.id);
+        }
+    }
+}

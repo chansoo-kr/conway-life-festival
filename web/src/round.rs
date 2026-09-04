@@ -3,6 +3,8 @@
 //! `challenge` 앱의 `LocalSource` 와 같은 규칙입니다:
 //! `id = now_unix / interval`, `pool[splitmix64(id) % pool.len()]`.
 //! 목록 순서도 `challenge` 의 `TARGET_POOL` 과 같아야 같은 모양이 나옵니다.
+//! 아래 `POOL` 이 앱과 어긋나지 않는지는 `cargo test -p challenge` 가 지킵니다
+//! (`challenge/src/main.rs` 의 `web_pool_matches_the_challenge_pool`).
 
 use crate::config::ROUND_INTERVAL_SECS;
 
