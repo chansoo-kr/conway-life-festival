@@ -8,24 +8,33 @@
 //!   `#/b?...`   대전 결과 QR이 가리키는 주소 → 두 사람 이름 적고 등록
 //!
 //! 주소는 `conway-core/src/qr.rs` 가 만들고, 마지막 `k` 값이 서명입니다.
+//!
+//! 리더보드 기록은 `config::API_BASE` 의 서버에 모입니다(`worker/` 참고). 그래서 목록을
+//! 그리는 일은 비동기입니다 — 화면을 먼저 그리고, 기록이 도착하면 표만 바꿔 끼웁니다.
 
 mod config;
 mod round;
 mod scan;
 mod store;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use store::{Match, Run};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 use web_sys::{Document, Element, HtmlInputElement};
 
 thread_local! {
     /// 스피드런 리더보드가 지금 그리고 있는 라운드. 여기가 바뀌면 순위표를 새로 그립니다.
     static SHOWN_ROUND: RefCell<Option<u64>> = const { RefCell::new(None) };
+    /// 1초 틱 횟수. 리더보드는 여기에 맞춰 [`REFRESH_SECS`] 마다 서버를 다시 읽습니다.
+    static TICKS: Cell<u64> = const { Cell::new(0) };
 }
+
+/// 리더보드를 다시 읽는 주기(초). 다른 기기에서 등록한 기록이 이만큼 안에 올라옵니다.
+const REFRESH_SECS: u64 = 10;
 
 fn main() {
     render();
@@ -200,6 +209,11 @@ fn render() {
 fn tick() {
     let now = round::now_unix();
     let current = round::round_at(now);
+    let n = TICKS.with(|t| {
+        t.set(t.get() + 1);
+        t.get()
+    });
+    let due = n.is_multiple_of(REFRESH_SECS);
 
     if find("board-list").is_some() {
         if SHOWN_ROUND.with(|r| *r.borrow() != Some(current.id)) {
@@ -207,6 +221,12 @@ fn tick() {
             return;
         }
         set_text("board-clock", &mmss(current.ends_at.saturating_sub(now)));
+        if due {
+            spawn_local(refresh_board(current.id));
+        }
+    }
+    if find("battle-list").is_some() && due {
+        spawn_local(refresh_battle());
     }
     if find("result-clock").is_some() {
         set_text("result-clock", &mmss(current.ends_at.saturating_sub(now)));

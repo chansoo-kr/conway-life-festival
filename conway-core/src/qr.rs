@@ -14,7 +14,7 @@ use bevy::{
 };
 
 /// 웹이 올라가 있는 주소. `CONWAY_WEB_URL` 로 덮어쓸 수 있습니다(로컬 확인용).
-pub const WEB_BASE_URL: &str = "https://sh.chansoo.kr/";
+pub const WEB_BASE_URL: &str = "https://sw.chansoo.kr/";
 
 /// 결과 값이 손대지 않은 값인지 보는 용도. 웹의 `SUBMIT_SECRET` 과 같아야 합니다.
 pub const SUBMIT_SECRET: &str = "conway-life-festival";
