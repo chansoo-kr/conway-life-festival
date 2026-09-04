@@ -38,9 +38,9 @@ pub const SECTIONS: &[Section] = &[
     Section {
         title: "키캡",
         items: &[
-            Item { name: "1구", desc: "키캡 1개", price: Some(1500) },
-            Item { name: "2구", desc: "키캡 2개", price: Some(2000) },
-            Item { name: "3구", desc: "키캡 3개", price: Some(2500) },
+            Item { name: "1구", desc: "키캡 1개", price: Some(2000) },
+            Item { name: "2구", desc: "키캡 2개", price: Some(2500) },
+            Item { name: "3구", desc: "키캡 3개", price: Some(3000) },
         ],
         note: "파츠는 하나당 500원 추가입니다.",
     },
