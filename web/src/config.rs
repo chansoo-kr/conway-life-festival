@@ -6,11 +6,16 @@
 /// `cargo run --release -p challenge -- --interval-min 60`
 pub const ROUND_INTERVAL_SECS: u64 = 60 * 60;
 
-/// 리더보드 서버 주소 (끝에 `/` 없이). `worker/` 의 Cloudflare Worker 가 여기에 올라갑니다.
+/// Supabase 프로젝트 주소 (끝에 `/` 없이). 리더보드는 여기 PostgREST 의 RPC 를 부릅니다.
+/// 표와 함수는 `supabase/migrations/` 에 있습니다.
 ///
 /// 비워 두면 서버 없이 **이 기기의 `localStorage`** 에만 기록이 쌓입니다(예전 방식).
 /// 서버 없이 화면만 확인할 때 쓰세요.
-pub const API_BASE: &str = "https://sw.chansoo.kr";
+pub const API_BASE: &str = "https://lgepcvmnqjyzdutvmnik.supabase.co";
+
+/// Supabase publishable 키. 공개되어도 되는 값입니다 — 표는 RLS 로 읽기만 열려 있고,
+/// 기록 등록은 서명을 확인하는 `submit_result` 함수를 거쳐야만 됩니다.
+pub const API_KEY: &str = "sb_publishable_O22kv5GtrEQOeO3sBLmkPQ_a6NvLVPd";
 
 /// QR 안의 결과값이 손대지 않은 값인지 확인할 때 쓰는 값.
 /// `conway-core/src/qr.rs` 의 `SUBMIT_SECRET` 과 같아야 합니다.

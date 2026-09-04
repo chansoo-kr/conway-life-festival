@@ -37,12 +37,23 @@ const QR_MODULE_PX: u32 = 6;
 const QR_PX: f32 = 300.0;
 /// 결과 QR을 찍고 이름을 적을 시간까지 감안한 결과 화면 유지 시간.
 const RESULT_SECS: f64 = 25.0;
+/// 스피드런 목표로 쓰는 프리셋 이름(앞부분). 실시간으로 진화하는 격자 위에서
+/// 제한 시간 안에 만들 수 있어야 하므로 4x4 이하의 작은 모양만 넣습니다.
+/// **순서를 바꾸거나 항목을 더하면 `web/src/round.rs` 의 `POOL` 도 똑같이 고쳐야
+/// 합니다** (같은 라운드에 같은 모양이 나와야 QR 결과와 리더보드가 맞습니다).
+/// 아래 테스트가 두 목록을 대조합니다.
 const TARGET_POOL: &[&str] = &[
     "블록",
     "벌집",
     "빵",
     "보트",
     "튜브",
+    "연못",
+    "배",
+    "긴 보트",
+    "거룻배",
+    "뱀",
+    "항공모함",
     "깜빡이",
     "두꺼비",
     "비컨",
@@ -669,6 +680,9 @@ fn on_session_reset(
 }
 
 /// 결과가 나오면 그 결과를 담은 주소로 QR을 굽고, 목표 미리보기 자리에 대신 띄웁니다.
+///
+/// 주소에는 결과마다 다른 값이 들어가므로(중복 등록 방지) 매 프레임 새로 만들면 안 됩니다.
+/// 결과가 바뀌었는지는 값이 아니라 아래 `key` 로만 판단합니다.
 fn sync_qr(
     challenge: Res<Challenge>,
     mut images: ResMut<Assets<Image>>,
@@ -676,33 +690,36 @@ fn sync_qr(
     mut boxes: Query<(&mut Node, Has<QrBox>), Or<(With<QrBox>, With<PreviewBox>)>>,
     mut shown: Local<Option<String>>,
 ) {
-    let url = match challenge.phase {
-        Phase::Cleared { time, .. } => Some(qr::challenge_url(
-            challenge.round.id,
-            true,
-            1.0,
-            time,
-        )),
-        Phase::TimeUp { .. } => Some(qr::challenge_url(
-            challenge.round.id,
-            false,
-            challenge.best_accuracy,
-            challenge.limit,
-        )),
+    let key = match challenge.phase {
+        Phase::Cleared {
+            time, generation, ..
+        } => Some(format!("cleared {time} {generation}")),
+        Phase::TimeUp { since } => Some(format!("timeup {since}")),
         _ => None,
     };
-    if *shown == url {
+    if *shown == key {
         return;
     }
-    if let Some(url) = &url
-        && let Some(image) = qr::qr_image(url, QR_MODULE_PX, 2)
-    {
-        let handle = images.add(image);
-        for mut node in &mut qr_node {
-            node.image = handle.clone();
+    if key.is_some() {
+        let url = match challenge.phase {
+            Phase::Cleared { time, .. } => {
+                qr::challenge_url(challenge.round.id, true, 1.0, time)
+            }
+            _ => qr::challenge_url(
+                challenge.round.id,
+                false,
+                challenge.best_accuracy,
+                challenge.limit,
+            ),
+        };
+        if let Some(image) = qr::qr_image(&url, QR_MODULE_PX, 2) {
+            let handle = images.add(image);
+            for mut node in &mut qr_node {
+                node.image = handle.clone();
+            }
         }
     }
-    let showing_qr = url.is_some();
+    let showing_qr = key.is_some();
     for (mut node, is_qr) in &mut boxes {
         let want = if is_qr == showing_qr {
             Display::Flex
@@ -713,7 +730,7 @@ fn sync_qr(
             node.display = want;
         }
     }
-    *shown = url;
+    *shown = key;
 }
 
 fn sync_tool(challenge: Res<Challenge>, mut tool: ResMut<PaintTool>) {
@@ -825,6 +842,12 @@ mod tests {
         ("빵", &[".oo.", "o..o", ".o.o", "..o."]),
         ("보트", &["oo.", "o.o", ".o."]),
         ("튜브", &[".o.", "o.o", ".o."]),
+        ("연못", &[".oo.", "o..o", "o..o", ".oo."]),
+        ("배", &["oo.", "o.o", ".oo"]),
+        ("긴 보트", &[".o..", "o.o.", ".o.o", "..oo"]),
+        ("거룻배", &[".o..", "o.o.", ".o.o", "..o."]),
+        ("뱀", &["oo.o", "o.oo"]),
+        ("항공모함", &["oo..", "o..o", "..oo"]),
         ("깜빡이", &["ooo"]),
         ("두꺼비", &[".ooo", "ooo."]),
         ("비컨", &["oo..", "oo..", "..oo", "..oo"]),

@@ -1,6 +1,6 @@
 //! 리더보드 저장소.
 //!
-//! 기록은 [`config::API_BASE`] 의 서버(Cloudflare Workers + D1, `worker/` 참고)에 모입니다.
+//! 기록은 Supabase 에 모입니다(표와 함수는 `supabase/migrations/`).
 //! 그래서 관람객이 각자 폰으로 열어도 같은 순위표가 보입니다.
 //!
 //! `API_BASE` 가 비어 있으면 예전처럼 이 기기의 `localStorage` 에만 쌓습니다 —
@@ -9,12 +9,12 @@
 //!
 //! 저장 형식은 줄 단위 텍스트입니다(캐시는 첫 줄 = 라운드 id, 이후 한 줄에 기록 하나).
 //! 서버가 돌려주는 본문에는 라운드 줄이 없습니다 — 질의로 이미 라운드를 지정했으니까요.
-//! 이 줄 형식은 `worker/src/index.js` 의 `build` 와 정확히 같아야 합니다.
+//! 이 줄 형식은 마이그레이션의 `submit_result` 가 만드는 줄과 정확히 같아야 합니다.
 
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
-use crate::config::{API_BASE, SUBMIT_SECRET};
+use crate::config::{API_BASE, API_KEY, SUBMIT_SECRET};
 
 /// 스피드런 기록 캐시.
 const RUN_KEY: &str = "clf.board.v1";
@@ -22,9 +22,16 @@ const RUN_KEY: &str = "clf.board.v1";
 const BATTLE_KEY: &str = "clf.battle.v1";
 /// 관리자 토큰(기록 지우기). 한 번 넣으면 그 기기에서 다시 묻지 않습니다.
 const ADMIN_KEY: &str = "clf.admin";
+/// 이미 등록한 QR 목록. 서버가 막아 주지만, 서버를 안 쓰거나 못 붙었을 때를 위해
+/// 이 기기에서도 같은 QR 을 두 번 받지 않습니다.
+const USED_KEY: &str = "clf.used.v1";
 /// 대전 기록은 라운드가 없어서 한 칸에 계속 쌓습니다.
 const BATTLE_ROUND: u64 = 0;
 const MAX_ENTRIES: usize = 200;
+const MAX_USED: usize = 500;
+
+/// 같은 QR 을 두 번 등록하려 할 때의 안내. `explain` 이 만들고 `finish` 가 알아봅니다.
+pub const DUPLICATE: &str = "이미 등록된 결과입니다.";
 
 /// 결과 주소의 질의문자열(`&k=` 앞부분)에 대한 서명.
 /// `conway-core/src/qr.rs` 의 `sign_query` 와 같은 함수입니다.
@@ -114,9 +121,17 @@ pub async fn load_runs(round: u64) -> Vec<Run> {
 /// 결과 QR 의 질의문자열(`signed`)과 서명(`k`)을 그대로 서버에 넘깁니다.
 /// 숫자는 서버가 다시 읽으므로 여기서 보내는 건 이름뿐입니다.
 pub async fn submit_run(round: u64, signed: &str, k: &str, entry: &Run) -> Result<(), String> {
+    if already_registered(signed) {
+        return Err(DUPLICATE.into());
+    }
     let name = clean_name(&entry.name);
-    let sent = post(&[("q", signed), ("k", k), ("name", &name)]).await;
-    finish(sent, RUN_KEY, round, || {
+    let sent = post(&[
+        ("p_q", signed.into()),
+        ("p_k", k.into()),
+        ("p_name", name.as_str().into()),
+    ])
+    .await;
+    finish(sent, signed, RUN_KEY, round, || {
         let mut entries = read(RUN_KEY, round, Run::decode);
         entries.push(entry.clone());
         sort_runs(&mut entries);
@@ -191,10 +206,19 @@ pub async fn load_matches() -> Vec<Match> {
 }
 
 pub async fn submit_match(signed: &str, k: &str, entry: &Match) -> Result<(), String> {
+    if already_registered(signed) {
+        return Err(DUPLICATE.into());
+    }
     let winner = clean_name(&entry.winner);
     let loser = clean_name(&entry.loser);
-    let sent = post(&[("q", signed), ("k", k), ("name", &winner), ("foe", &loser)]).await;
-    finish(sent, BATTLE_KEY, BATTLE_ROUND, || {
+    let sent = post(&[
+        ("p_q", signed.into()),
+        ("p_k", k.into()),
+        ("p_name", winner.as_str().into()),
+        ("p_foe", loser.as_str().into()),
+    ])
+    .await;
+    finish(sent, signed, BATTLE_KEY, BATTLE_ROUND, || {
         let mut entries = read(BATTLE_KEY, BATTLE_ROUND, Match::decode);
         entries.push(entry.clone());
         sort_matches(&mut entries);
@@ -219,9 +243,9 @@ pub fn online() -> bool {
 
 async fn load<T>(kind: &str, key: &str, round: u64, decode: fn(&str) -> Option<T>) -> Vec<T> {
     if online() {
-        let url = format!("{API_BASE}/board?kind={kind}&round={round}");
-        if let Ok(body) = request("GET", &url, None).await {
-            let lines: Vec<&str> = body.lines().filter(|l| !l.trim().is_empty()).collect();
+        let body = json(&[("p_kind", kind.into()), ("p_round", (round as f64).into())]);
+        if let Ok(text) = rpc("board_lines", body).await {
+            let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
             write(key, round, lines.iter().map(|l| l.to_string()));
             return lines.into_iter().filter_map(decode).collect();
         }
@@ -229,32 +253,41 @@ async fn load<T>(kind: &str, key: &str, round: u64, decode: fn(&str) -> Option<T
     read(key, round, decode)
 }
 
-async fn post(fields: &[(&str, &str)]) -> Option<Result<(), String>> {
+/// 서버를 안 쓰는 설정이면 `None` — 그때는 부르는 쪽이 이 기기에만 저장합니다.
+async fn post(fields: &[(&str, JsValue)]) -> Option<Result<(), String>> {
     if !online() {
         return None;
     }
-    let url = format!("{API_BASE}/board");
-    match request("POST", &url, Some(json(fields))).await {
-        Ok(_) => Some(Ok(())),
-        Err(err) => Some(Err(err)),
-    }
+    Some(rpc("submit_result", json(fields)).await.map(|_| ()))
 }
 
 /// 서버에 올라갔으면 그대로 끝. 서버를 안 쓰거나 못 붙었으면 이 기기에라도 남깁니다.
+/// 어느 쪽이든 등록에 성공했으면 그 QR 을 '이미 씀' 으로 표시해 두 번 받지 않습니다.
 fn finish(
     sent: Option<Result<(), String>>,
+    signed: &str,
     key: &str,
     round: u64,
     local: impl FnOnce() -> Vec<String>,
 ) -> Result<(), String> {
     match sent {
-        Some(Ok(())) => Ok(()),
+        Some(Ok(())) => {
+            mark_registered(signed);
+            Ok(())
+        }
+        // 서버가 중복이라고 돌려보낸 것은 이 기기에도 남기지 않습니다.
+        Some(Err(err)) if err == DUPLICATE => {
+            mark_registered(signed);
+            Err(err)
+        }
         Some(Err(err)) => {
             write(key, round, local().into_iter());
+            mark_registered(signed);
             Err(format!("{err} 이 기기에만 저장했습니다."))
         }
         None => {
             write(key, round, local().into_iter());
+            mark_registered(signed);
             Ok(())
         }
     }
@@ -263,47 +296,40 @@ fn finish(
 async fn wipe(kind: &str, key: &str, round: u64) -> Result<(), String> {
     if !online() {
         write(key, round, std::iter::empty());
+        forget_used();
         return Ok(());
     }
     let Some(token) = admin_token() else {
         return Err("관리자 토큰이 필요합니다.".into());
     };
-    let url = format!("{API_BASE}/board?kind={kind}&round={round}");
-    request_with_admin("DELETE", &url, None, Some(&token)).await?;
+    let body = json(&[
+        ("p_kind", kind.into()),
+        ("p_round", (round as f64).into()),
+        ("p_token", token.as_str().into()),
+    ]);
+    rpc("wipe_board", body).await?;
     write(key, round, std::iter::empty());
+    forget_used();
     Ok(())
 }
 
-async fn request(method: &str, url: &str, body: Option<String>) -> Result<String, String> {
-    request_with_admin(method, url, body, None).await
-}
-
-async fn request_with_admin(
-    method: &str,
-    url: &str,
-    body: Option<String>,
-    admin: Option<&str>,
-) -> Result<String, String> {
+/// Supabase(PostgREST) 함수 호출. 함수가 `text` 를 돌려주므로 본문은 JSON 문자열 하나입니다.
+async fn rpc(name: &str, body: String) -> Result<String, String> {
     let window = web_sys::window().ok_or("window 를 찾을 수 없습니다.")?;
 
     let init = web_sys::RequestInit::new();
-    init.set_method(method);
+    init.set_method("POST");
     init.set_mode(web_sys::RequestMode::Cors);
-    if let Some(body) = &body {
-        init.set_body(&JsValue::from_str(body));
-    }
+    init.set_body(&JsValue::from_str(&body));
 
-    let request =
-        web_sys::Request::new_with_str_and_init(url, &init).map_err(|_| "요청을 만들지 못했습니다.")?;
-    if body.is_some() {
-        // application/json 이면 프리플라이트가 한 번 더 갑니다. 서버는 본문만 보므로 단순 요청으로.
-        let _ = request
-            .headers()
-            .set("content-type", "text/plain;charset=UTF-8");
-    }
-    if let Some(token) = admin {
-        let _ = request.headers().set("x-admin", token);
-    }
+    let url = format!("{API_BASE}/rest/v1/rpc/{name}");
+    let request = web_sys::Request::new_with_str_and_init(&url, &init)
+        .map_err(|_| "요청을 만들지 못했습니다.".to_string())?;
+    let headers = request.headers();
+    let _ = headers.set("content-type", "application/json");
+    let _ = headers.set("accept", "application/json");
+    let _ = headers.set("apikey", API_KEY);
+    let _ = headers.set("authorization", &format!("Bearer {API_KEY}"));
 
     let response = JsFuture::from(window.fetch_with_request(&request))
         .await
@@ -323,29 +349,87 @@ async fn request_with_admin(
     .unwrap_or_default();
 
     if response.ok() {
-        return Ok(text);
+        return Ok(js_sys::JSON::parse(&text)
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default());
     }
-    Err(match response.status() {
-        403 => "서버가 이 결과를 받아 주지 않았습니다(서명 확인 실패).".into(),
-        409 => "이미 등록된 결과입니다.".into(),
-        code => format!("서버 오류({code})."),
-    })
+    Err(explain(response.status(), &text))
+}
+
+/// PostgREST 오류 본문(`{"message": ...}`)을 부스에서 읽을 만한 한 줄로.
+fn explain(status: u16, body: &str) -> String {
+    let message = js_sys::JSON::parse(body)
+        .ok()
+        .and_then(|v| js_sys::Reflect::get(&v, &JsValue::from_str("message")).ok())
+        .and_then(|v| v.as_string())
+        .unwrap_or_default();
+
+    if message.contains("bad signature") {
+        "서버가 이 결과를 받아 주지 않았습니다(서명 확인 실패).".into()
+    } else if message.contains("duplicate") {
+        DUPLICATE.into()
+    } else if message.contains("admin token") {
+        "관리자 토큰이 맞지 않습니다.".into()
+    } else {
+        format!("서버 오류({status}).")
+    }
 }
 
 /// 이름에 따옴표가 들어와도 깨지지 않도록 JSON 은 브라우저에 맡깁니다.
-fn json(fields: &[(&str, &str)]) -> String {
+fn json(fields: &[(&str, JsValue)]) -> String {
     let obj = js_sys::Object::new();
     for (key, value) in fields {
-        let _ = js_sys::Reflect::set(
-            &obj,
-            &JsValue::from_str(key),
-            &JsValue::from_str(value),
-        );
+        let _ = js_sys::Reflect::set(&obj, &JsValue::from_str(key), value);
     }
     js_sys::JSON::stringify(&obj)
         .ok()
         .and_then(|s| s.as_string())
         .unwrap_or_else(|| "{}".into())
+}
+
+// ------------------------------------------------------------- 중복 등록 방지
+
+/// QR 하나를 가리키는 표 = 결과 주소의 질의문자열. 결과마다 다른 `n` 값이 들어 있어서
+/// 값이 우연히 같은 두 경기도 서로 다른 표를 갖습니다 (`conway-core/src/qr.rs`).
+pub fn already_registered(signed: &str) -> bool {
+    let token = token(signed);
+    !token.is_empty() && used().contains(&token)
+}
+
+fn mark_registered(signed: &str) {
+    let token = token(signed);
+    if token.is_empty() {
+        return;
+    }
+    let mut list = used();
+    list.push(token);
+    // 오래된 것부터 버립니다 — 지난 라운드 QR 은 어차피 등록이 막혀 있습니다.
+    let start = list.len().saturating_sub(MAX_USED);
+    if let Some(store) = storage() {
+        let _ = store.set_item(USED_KEY, &list[start..].join("\n"));
+    }
+}
+
+fn token(signed: &str) -> String {
+    signed.chars().filter(|c| !c.is_control()).take(200).collect()
+}
+
+fn used() -> Vec<String> {
+    let Some(store) = storage() else {
+        return Vec::new();
+    };
+    let Ok(Some(raw)) = store.get_item(USED_KEY) else {
+        return Vec::new();
+    };
+    raw.lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
+}
+
+/// 순위표를 비우면 그 표들도 함께 잊습니다 — 진행 요원이 판을 새로 깔 수 있게.
+fn forget_used() {
+    if let Some(store) = storage() {
+        let _ = store.remove_item(USED_KEY);
+    }
 }
 
 // ------------------------------------------------------------- 관리자 토큰

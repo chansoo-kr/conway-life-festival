@@ -52,7 +52,17 @@ pub fn sign_query(query: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// 결과마다 다른 값(`n`)이 들어가야 웹이 "이 QR은 이미 등록됨"을 가려낼 수 있습니다.
+/// 초 단위라 한 부스에서 같은 값이 두 번 나올 일은 없습니다.
+fn nonce() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn result_url(path: &str, query: String) -> String {
+    let query = format!("{query}&n={}", nonce());
     let sig = sign_query(&query);
     format!("{}#/{path}?{query}&k={sig}", web_base_url())
 }
@@ -129,11 +139,12 @@ mod tests {
         let query = body.split_once("?").expect("질의문자열").1;
         assert_eq!(sign_query(query), sig);
         assert!(url.contains("a=10000") && url.contains("t=12340"));
+        assert!(query.contains("&n="), "결과마다 다른 값이 들어가야 함");
     }
 
     #[test]
     fn battle_url_marks_the_winner() {
-        assert!(battle_url(Some(1), [12, 30], 600).contains("w=2&x=12&y=30&g=600"));
+        assert!(battle_url(Some(1), [12, 30], 600).contains("w=2&x=12&y=30&g=600&n="));
         assert!(battle_url(None, [7, 7], 600).contains("w=0"));
     }
 

@@ -568,29 +568,33 @@ fn match_rows(entries: &[Match]) -> String {
         return "<tr><td colspan=\"4\" class=\"dim\">아직 기록이 없습니다. 전투 결과 QR을 찍어 주세요.</td></tr>".to_string();
     }
     entries
-            .iter()
-            .enumerate()
-            .map(|(i, m)| {
-                let (who, score) = if m.draw {
-                    (
-                        format!("{} = {}", esc(&m.winner), esc(&m.loser)),
-                        format!("무승부 {}셀", m.winner_cells),
-                    )
-                } else {
-                    (
-                        format!("{} <span class=\"dim\">vs {}</span>", esc(&m.winner), esc(&m.loser)),
-                        format!(
-                            "<span class=\"ok\">{}</span> : {}셀",
-                            m.winner_cells, m.loser_cells
-                        ),
-                    )
-                };
-                format!(
-                    "<tr><td class=\"rank\">{}</td><td>{who}</td><td class=\"num\">{score}</td></tr>",
-                    i + 1
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let (who, score) = if m.draw {
+                (
+                    format!("{} = {}", esc(&m.winner), esc(&m.loser)),
+                    format!("무승부 {}셀", m.winner_cells),
                 )
-            })
-            .collect()
+            } else {
+                (
+                    format!(
+                        "{} <span class=\"dim\">vs {}</span>",
+                        esc(&m.winner),
+                        esc(&m.loser)
+                    ),
+                    format!(
+                        "<span class=\"ok\">{}</span> : {}셀",
+                        m.winner_cells, m.loser_cells
+                    ),
+                )
+            };
+            format!(
+                "<tr><td class=\"rank\">{}</td><td>{who}</td><td class=\"num\">{score}</td></tr>",
+                i + 1
+            )
+        })
+        .collect()
 }
 
 async fn refresh_battle() {
@@ -849,13 +853,15 @@ fn bind_match_result(r: &Route) {
 
 /// 진행 요원 확인용. 앱 없이 등록 흐름만 확인할 때 씁니다.
 fn view_dev() -> String {
-    let r = round::round_at(round::now_unix());
+    let now = round::now_unix();
+    let r = round::round_at(now);
     let mut rows = String::new();
+    // 앱이 만드는 주소처럼 `n` 을 붙입니다 — 없으면 샘플 하나를 한 번밖에 못 씁니다.
     for (label, query) in [
-        ("스피드런 성공", format!("r?r={}&c=1&a=10000&t=12340", r.id)),
-        ("스피드런 시간 초과", format!("r?r={}&c=0&a=6400&t=60000", r.id)),
-        ("전투 P1 승", "b?w=1&x=340&y=120&g=600".to_string()),
-        ("전투 무승부", "b?w=0&x=200&y=200&g=600".to_string()),
+        ("스피드런 성공", format!("r?r={}&c=1&a=10000&t=12340&n={now}", r.id)),
+        ("스피드런 시간 초과", format!("r?r={}&c=0&a=6400&t=60000&n={now}", r.id)),
+        ("전투 P1 승", format!("b?w=1&x=340&y=120&g=600&n={now}")),
+        ("전투 무승부", format!("b?w=0&x=200&y=200&g=600&n={now}")),
     ] {
         let query_only = query.split_once('?').map_or("", |(_, q)| q);
         let href = format!("#/{query}&k={}", store::signature(query_only));

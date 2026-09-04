@@ -836,6 +836,9 @@ fn update_territory(battle: Res<Battle>, mut tints: Query<(&TerritoryTint, &mut 
 
 #[allow(clippy::too_many_arguments)]
 /// 경기가 끝나면 결과를 담은 주소로 QR을 굽습니다. 결과 카드가 열릴 때 같이 보입니다.
+///
+/// 주소에는 결과마다 다른 값이 들어가므로(중복 등록 방지) 매 프레임 새로 만들면 안 됩니다.
+/// 경기가 바뀌었는지는 값이 아니라 아래 `key` 로만 판단합니다.
 fn sync_qr(
     battle: Res<Battle>,
     generation: Res<Generation>,
@@ -843,24 +846,29 @@ fn sync_qr(
     mut qr_node: Query<&mut ImageNode, With<QrImage>>,
     mut shown: Local<Option<String>>,
 ) {
-    let url = match battle.phase {
-        Phase::Result { winner, counts, .. } => {
-            Some(qr::battle_url(winner, counts, generation.0))
-        }
+    let key = match battle.phase {
+        Phase::Result {
+            winner, counts, at, ..
+        } => Some(format!("{winner:?} {counts:?} {at}")),
         _ => None,
     };
-    if *shown == url {
+    if *shown == key {
         return;
     }
-    if let Some(url) = &url
-        && let Some(image) = qr::qr_image(url, QR_MODULE_PX, 2)
+    if key.is_some()
+        && let Phase::Result { winner, counts, .. } = battle.phase
+        && let Some(image) = qr::qr_image(
+            &qr::battle_url(winner, counts, generation.0),
+            QR_MODULE_PX,
+            2,
+        )
     {
         let handle = images.add(image);
         for mut node in &mut qr_node {
             node.image = handle.clone();
         }
     }
-    *shown = url;
+    *shown = key;
 }
 
 fn update_hud(
