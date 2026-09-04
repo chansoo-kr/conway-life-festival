@@ -90,6 +90,11 @@ batocera-save-overlay      # 필요 시 (userdata 는 원래 영구 저장이라
 로그는 `/userdata/system/logs/conway-<모드>.log` 에 남습니다.
 
 - **목록에 안 보임** → `chmod +x`, 그리고 게임 목록 업데이트
+- **실행하자마자 종료되고 로그 파일도 안 생김** → 런처 스크립트가 아예 실행되지 못한 것입니다.
+  Windows 에서 복사했다면 줄바꿈이 CRLF 로 바뀌어 `#!/bin/bash` 줄이 깨진 경우가 대부분입니다
+  (`head -c 12 /userdata/roms/ports/conway-tutorial.sh | od -c` 에 `\r` 이 보이면 확정).
+  기기에서 `sed -i 's/\r$//' /userdata/roms/ports/conway-*.sh` 로 고치거나 `build.sh` 로 번들을
+  다시 만드세요(`build.sh` 가 CR 을 걷어냅니다). `chmod +x` 누락도 같은 증상입니다
 - **잠깐 검은 화면 후 ES 로 복귀** → 로그 확인. `GLIBC_ ... not found` 면 `--docker` 로 다시 빌드,
   `Failed to create graphics device` / `no suitable adapter` 면 `WGPU_BACKEND=gl`
 - **창이 안 뜨거나 입력이 안 먹음** → Wayland/X11 문제. 바이너리는 둘 다 지원하도록 빌드되어 있고,

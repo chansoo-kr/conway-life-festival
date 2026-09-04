@@ -1,0 +1,5 @@
+# 셸 스크립트·Batocera 배포 파일은 Windows 체크아웃에서도 항상 LF 로 둡니다.
+# CRLF 로 복사되면 런처의 #!/bin/bash 줄이 깨져 기기에서 즉시 종료됩니다.
+*.sh        text eol=lf
+*.keys      text eol=lf
+batocera/** text eol=lf

@@ -13,6 +13,8 @@ export CONWAY_WINDOW="${CONWAY_WINDOW:-borderless}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/var/run}"
 export RUST_LOG="${RUST_LOG:-warn}"
 
-cd "$APP" || { echo "no app dir: $APP"; exit 1; }
 mkdir -p "$(dirname "$LOG")"
-exec ./challenge --idle-reset-sec 120 --interval-min 30 --rate 1 --limit-sec 60 "$@" >"$LOG" 2>&1
+exec >"$LOG" 2>&1          # 이 아래의 모든 출력(실패 원인 포함)은 $LOG 로 갑니다
+cd "$APP" || { echo "no app dir: $APP"; exit 1; }
+[[ -x ./challenge ]] || { echo "not executable: $APP/challenge (chmod +x 필요)"; exit 1; }
+exec ./challenge --idle-reset-sec 120 --interval-min 30 --rate 1 --limit-sec 60 "$@"

@@ -49,11 +49,14 @@ for b in "${BINS[@]}"; do
   strip "$APPDIR/$b" 2>/dev/null || true
 done
 cp -r "$ROOT/conway-core/assets" "$APPDIR/assets"   # 실행 파일 옆의 assets/ 를 자동으로 씁니다
-cp "$ROOT/batocera/ports/"*.sh "$DIST/"
-cp "$ROOT/batocera/gamelist.xml" "$DIST/gamelist.xml"
-cp "$ROOT/batocera/gamelist.ko.xml" "$DIST/gamelist.ko.xml"   # 한글 테마용 대체본
+# 텍스트 파일은 CR 을 걷어내며 복사합니다. Windows 체크아웃(autocrlf)에서 CRLF 가 된 런처를
+# 그대로 올리면 `#!/bin/bash\r` 이 되어 기기에서 실행 직후 조용히 종료됩니다.
+copy_lf() { sed 's/\r$//' "$1" > "$2"; }
+for s in "$ROOT/batocera/ports/"*.sh; do copy_lf "$s" "$DIST/$(basename "$s")"; done
+copy_lf "$ROOT/batocera/gamelist.xml" "$DIST/gamelist.xml"
+copy_lf "$ROOT/batocera/gamelist.ko.xml" "$DIST/gamelist.ko.xml"   # 한글 테마용 대체본
 for k in "$ROOT/batocera/keys/"*.keys; do
-  [[ -e "$k" ]] && cp "$k" "$DIST/$(basename "$k")"
+  [[ -e "$k" ]] && copy_lf "$k" "$DIST/$(basename "$k")"
 done
 chmod +x "$DIST"/*.sh
 
