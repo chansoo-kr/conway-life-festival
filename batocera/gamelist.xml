@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!-- /userdata/roms/ports/gamelist.xml
+     If the device already has a gamelist.xml, merge only the <game> blocks into its <gameList>.
+     Names are English so they render on themes without a CJK font; gamelist.ko.xml has Korean text. -->
+<gameList>
+  <game>
+    <path>./conway-tutorial.sh</path>
+    <name>Life Tutorial</name>
+    <desc>A 3-4 minute hands-on tutorial for Conway's Game of Life: the rules and the controls, learned by doing. Start here.</desc>
+    <image>./images/tutorial.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Educational</genre>
+    <players>1</players>
+    <sortname>0 tutorial</sortname>
+  </game>
+  <game>
+    <path>./conway-free-mode.sh</path>
+    <name>Life Free Mode</name>
+    <desc>Draw and run anything on a 16384x16384 grid. Includes huge presets: a clock, 8/16-bit computers, a Turing machine, a prime calculator.</desc>
+    <image>./images/free-mode.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Simulation</genre>
+    <players>1</players>
+    <sortname>1 free mode</sortname>
+  </game>
+  <game>
+    <path>./conway-challenge.sh</path>
+    <name>Life Challenge</name>
+    <desc>Build the target shape against the clock on a grid that keeps evolving underneath you. Top 5 records are kept per round.</desc>
+    <image>./images/challenge.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Puzzle</genre>
+    <players>1</players>
+    <sortname>2 challenge</sortname>
+  </game>
+  <game>
+    <path>./conway-battle.sh</path>
+    <name>Life Battle</name>
+    <desc>1 vs 1. Place your cells with a 60-second, 60-cell budget, then run 600 generations and win on colour majority.</desc>
+    <image>./images/battle.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Strategy</genre>
+    <players>2</players>
+    <sortname>3 battle</sortname>
+  </game>
+</gameList>

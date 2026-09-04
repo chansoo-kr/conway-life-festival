@@ -18,5 +18,5 @@ debug = "line-tables-only"
 
 [workspace.dependencies]
 # system_font_discovery: 한글 UI를 위해 시스템 폰트(맑은 고딕, Noto Sans KR 등)를 패밀리 이름으로 사용
-bevy = { version = "0.19.1", features = ["system_font_discovery"] }
+bevy = { version = "0.19.1", features = ["system_font_discovery", "wayland"] }
 conway-core = { path = "conway-core" }

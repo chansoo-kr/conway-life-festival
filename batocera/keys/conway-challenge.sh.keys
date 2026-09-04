@@ -1,0 +1,13 @@
+{
+  "actions_player1": [
+    { "trigger": "joystick1", "type": "mouse",       "description": "Move cursor" },
+    { "trigger": "a",         "type": "mouse_click", "target": "left",  "description": "Draw cells" },
+    { "trigger": "b",         "type": "mouse_click", "target": "right", "description": "Erase cells" },
+    { "trigger": "start",     "type": "key",         "target": "KEY_SPACE", "description": "Play / pause" },
+    { "trigger": "y",         "type": "key",         "target": "KEY_N",     "description": "Step one generation" },
+    { "trigger": "x",         "type": "key",         "target": "KEY_C",     "description": "Clear grid" },
+    { "trigger": "pageup",    "type": "key",         "target": "KEY_RIGHTBRACE", "description": "Speed up" },
+    { "trigger": "pagedown",  "type": "key",         "target": "KEY_LEFTBRACE",  "description": "Slow down" },
+    { "trigger": "select",    "type": "key",         "target": "KEY_F",     "description": "Fit to screen" }
+  ]
+}

@@ -11,6 +11,7 @@
 | `free-mode` | 자유 모드 + 프리셋 체험 (16384×16384 격자 · 시계, 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 등 초대형 프리셋 포함) | `cargo run --release -p free-mode` |
 | `challenge` | **실시간으로 진화하는 격자** 위에서 30분마다 제시되는 모양 빠르게 만들기 | `cargo run --release -p challenge` |
 | `battle` | 1 vs 1 대전 (Immigration 규칙, 색 다수결) | `cargo run --release -p battle` |
+| `web` | 부스 웹(GitHub Pages): 구매·계좌 이체 안내 + 챌린지 리더보드 | `cd web && trunk serve` |
 
 ## 조작
 
@@ -51,6 +52,17 @@
 - 무기고 숫자 키 `1~8`, `H`/`V` 좌우·상하 반전, `Enter` 준비 완료
 - 전투: 600세대, `F` 빨리 감기. 결과 후 `R` 다시 시작
 
+## 부스 웹 (web)
+
+`main` 에 푸시하면 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) 이 `web/dist` 를 GitHub Pages 로 올립니다.
+루트 워크스페이스와 분리된 wasm 전용 크레이트라 `cargo build` 에는 딸려 오지 않습니다.
+
+- `#/pay` 구매·계좌 이체 안내 — 가격과 계좌번호는 [web/src/config.rs](web/src/config.rs) 한 파일에 모여 있습니다.
+- `#/board` 챌린지 리더보드 — 목표 모양이 한 시간마다 바뀌고, **바뀌는 순간 순위표가 비워집니다.**
+  챌린지 결과 QR을 이 화면의 `[QR 스캔]` 으로 찍으면 이름을 적고 순위에 올릴 수 있습니다.
+  라운드 계산이 `challenge` 의 `LocalSource` 와 같으므로 챌린지 앱은 `--interval-min 60` 으로 띄웁니다.
+- 결과 QR 주소 형식·서명과 운영 방식은 [web/README.md](web/README.md) 참고.
+
 ## 외부 웹 서비스 연동 (challenge)
 
 [challenge/src/main.rs](challenge/src/main.rs)의 `ChallengeSource` 트레이트가 "지금 라운드의 목표"를 결정합니다.
@@ -78,6 +90,14 @@ tutorial/src/engine.rs 튜토리얼 엔진 (StepGoal 판정, 단계 카드 오�
 free-mode/src/main.rs
 challenge/src/main.rs
 battle/src/main.rs
+web/                  부스 웹 (Trunk + wasm, 루트 워크스페이스와 분리)
+  index.html          Trunk 진입점
+  style.css           터미널풍 스타일
+  src/main.rs         라우팅·화면·DOM
+  src/config.rs       가격·계좌·라운드 주기
+  src/round.rs        라운드와 목표 모양 (challenge 의 LocalSource 와 동일 규칙)
+  src/store.rs        리더보드 저장(localStorage) + 결과 서명
+  src/scan.rs         카메라 QR 인식 (rqrr)
 ```
 
 ## 폰트
@@ -92,6 +112,15 @@ battle/src/main.rs
 - 배포 시 실행 파일 옆에 `assets/` 폴더(`conway-core/assets` 복사)를 함께 두면 됩니다. 개발 중에는 `conway-core/assets` 를 자동 사용합니다.
 - 패키지 3개를 동시에 링크할 때 드물게 `can't find crate` / `invalid metadata` 오류가 나면
   `cargo build -j 1` 또는 `cargo build -p <name>` 으로 하나씩 빌드하세요.
+
+## Batocera 부스 설치 (커스텀 게임)
+
+네 앱을 Batocera 의 **Ports** 에 커스텀 게임으로 올리는 준비물은 [batocera/](batocera/) 에 있습니다 —
+빌드/번들 스크립트([batocera/build.sh](batocera/build.sh)), 런처 스크립트, `gamelist.xml`, 패드→마우스 매핑.
+설치 절차는 [batocera/README.md](batocera/README.md) 참고.
+
+창 모드는 `--window <spec>` 또는 `CONWAY_WINDOW=<spec>` 으로 정합니다
+(`borderless` · `fullscreen` · `windowed` · `1600x900`). 키오스크에서는 `borderless` 를 권장합니다.
 
 ## 검증 (디버그 환경 변수)
 

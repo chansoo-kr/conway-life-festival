@@ -1,1 +1,5 @@
 /target
+
+/batocera/dist/
+/batocera/.docker-target/
+/batocera/.docker-cargo/

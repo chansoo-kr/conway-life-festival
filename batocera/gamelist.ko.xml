@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!-- /userdata/roms/ports/gamelist.xml
+     이미 gamelist.xml 이 있다면 아래 <game> 항목만 기존 <gameList> 안에 합쳐 넣으세요. -->
+<gameList>
+  <game>
+    <path>./conway-tutorial.sh</path>
+    <name>생명 게임 튜토리얼</name>
+    <desc>콘웨이의 생명 게임 규칙과 조작을 직접 해 보며 배우는 3~4분짜리 인터랙티브 튜토리얼. 처음 온 방문자는 여기부터.</desc>
+    <image>./images/tutorial.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Educational</genre>
+    <players>1</players>
+    <sortname>0 tutorial</sortname>
+  </game>
+  <game>
+    <path>./conway-free-mode.sh</path>
+    <name>생명 게임 자유 모드</name>
+    <desc>16384x16384 격자에서 마음대로 그리고 돌려 보는 자유 모드. 시계, 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 등 초대형 프리셋 포함.</desc>
+    <image>./images/free-mode.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Simulation</genre>
+    <players>1</players>
+    <sortname>1 free mode</sortname>
+  </game>
+  <game>
+    <path>./conway-challenge.sh</path>
+    <name>생명 게임 챌린지</name>
+    <desc>실시간으로 진화하는 격자 위에서 제시된 모양을 제한 시간 안에 만들어 내는 도전. 최고 기록 5개 표시.</desc>
+    <image>./images/challenge.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Puzzle</genre>
+    <players>1</players>
+    <sortname>2 challenge</sortname>
+  </game>
+  <game>
+    <path>./conway-battle.sh</path>
+    <name>생명 게임 대전</name>
+    <desc>1 vs 1 대전. 60초/60셀 예산으로 배치하고 600세대를 돌려 색 다수결로 승부를 가립니다.</desc>
+    <image>./images/battle.png</image>
+    <developer>Conway Life Festival</developer>
+    <genre>Strategy</genre>
+    <players>2</players>
+    <sortname>3 battle</sortname>
+  </game>
+</gameList>
