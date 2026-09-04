@@ -521,23 +521,12 @@ fn view_board() -> String {
 </div>
 {scan}
 <table class="list" id="board-list">{rows}</table>
-<p class="dim">성공한 기록이 걸린 시간 순으로 먼저, 그 다음 미성공 기록이 정확도 순으로 놓입니다.
-{note}</p>"##,
+<p class="dim">성공한 기록이 걸린 시간 순으로 먼저, 그 다음 미성공 기록이 정확도 순으로 놓입니다.</p>"##,
         shape = shape_html(r.shape),
         name = esc(r.name),
         id = r.id,
         scan = scan_bar("기록 지우기"),
-        note = board_note(),
     )
-}
-
-/// 기록이 어디에 쌓이는지 알려 주는 한 줄.
-fn board_note() -> &'static str {
-    if store::online() {
-        "기록은 모두가 같이 보는 순위표에 올라갑니다 — 각자 폰으로 열어도 같은 화면입니다."
-    } else {
-        "지금은 서버를 쓰지 않는 설정입니다 — 기록이 이 기기에만 쌓입니다."
-    }
 }
 
 fn bind_board() {
@@ -610,10 +599,8 @@ fn view_battle() -> String {
         r##"<h2 class="cmd">watch -n1 전투</h2>
 <p class="dim">600세대를 버틴 뒤 <b>이긴 쪽이 남긴 셀이 많은 경기</b>가 위로 올라갑니다.</p>
 {scan}
-<table class="list" id="battle-list">{rows}</table>
-<p class="dim">{note}</p>"##,
+<table class="list" id="battle-list">{rows}</table>"##,
         scan = scan_bar("기록 지우기"),
-        note = board_note(),
     )
 }
 
