@@ -9,7 +9,7 @@
 | `conway-core` | 공용 라이브러리 (GPU 시뮬레이션, 페인팅, 카메라, UI·시작 팝업·세션 초기화, 프리셋, 에셋) | — |
 | `tutorial` | 생명 게임 규칙과 조작을 직접 해 보며 배우는 인터랙티브 튜토리얼 + 세 모드 소개 | `cargo run --release -p tutorial` |
 | `free-mode` | 자유 모드 + 프리셋 체험 (16384×16384 격자 · 시계, 8/16비트 컴퓨터, 튜링 머신, 소수 계산기 등 초대형 프리셋 포함) | `cargo run --release -p free-mode` |
-| `challenge` | **실시간으로 진화하는 격자** 위에서 30분마다 제시되는 모양 빠르게 만들기 | `cargo run --release -p challenge` |
+| `challenge` | **실시간으로 진화하는 격자** 위에서 한 시간마다 제시되는 모양 빠르게 만들기 | `cargo run --release -p challenge` |
 | `battle` | 1 vs 1 대전 (Immigration 규칙, 색 다수결) | `cargo run --release -p battle` |
 | `web` | 부스 웹(GitHub Pages): 구매·계좌 이체 안내 + 챌린지 리더보드 | `cd web && trunk serve` |
 
@@ -44,13 +44,15 @@
 - 판정은 GPU readback(실제 화면 상태)으로 매 프레임. 돌리거나 뒤집은 모양도 인정. 성공하면 그 순간의 격자를 고정하고 기록을 남깁니다. 라운드별 최고 기록 5개 표시
 - 목표는 실시간 진화 중에도 만들 수 있는 작은 패턴(블록·벌집·빵·보트·튜브·깜빡이·두꺼비·비컨·글라이더·이터)에서 라운드마다 선택
 - 도전마다 제한 시간(기본 60초)이 있습니다. 완성하면 기록을 보여 준 뒤, 시간이 다 되면 **최고 정확도(%)** 를 보여 준 뒤 시작 팝업으로 돌아갑니다. 진행 중에는 현재·최고 정확도가 표시됩니다
-- `--interval-min N` 라운드 간격(분, 기본 30) · `--rate R` 시뮬레이션 속도(세대/초, 기본 1) · `--limit-sec S` 제한 시간(초, 기본 60)
+- 결과가 나오면 목표 미리보기 자리에 **결과 QR** 이 뜹니다(25초). 찍으면 웹에서 이름을 적고 리더보드에 올라갑니다
+- `--interval-min N` 라운드 간격(분, 기본 60 — 웹 리더보드와 같아야 함) · `--rate R` 시뮬레이션 속도(세대/초, 기본 1) · `--limit-sec S` 제한 시간(초, 기본 60)
   예: `cargo run -p challenge -- --interval-min 1 --rate 2 --limit-sec 90`
 
 ### battle
 - 배치 단계: 플레이어 1(왼쪽, 초록) → 플레이어 2(오른쪽, 주황), 각 60초 / 60셀 예산
 - 무기고 숫자 키 `1~8`, `H`/`V` 좌우·상하 반전, `Enter` 준비 완료
 - 전투: 600세대, `F` 빨리 감기. 결과 후 `R` 다시 시작
+- 결과 카드에 **결과 QR** 이 같이 뜹니다(30초). 찍으면 웹에서 두 사람 이름을 적고 전투 리더보드에 올라갑니다
 
 ## 부스 웹 (web)
 
@@ -58,10 +60,11 @@
 루트 워크스페이스와 분리된 wasm 전용 크레이트라 `cargo build` 에는 딸려 오지 않습니다.
 
 - `#/pay` 구매·계좌 이체 안내 — 가격과 계좌번호는 [web/src/config.rs](web/src/config.rs) 한 파일에 모여 있습니다.
-- `#/board` 챌린지 리더보드 — 목표 모양이 한 시간마다 바뀌고, **바뀌는 순간 순위표가 비워집니다.**
-  챌린지 결과 QR을 이 화면의 `[QR 스캔]` 으로 찍으면 이름을 적고 순위에 올릴 수 있습니다.
-  라운드 계산이 `challenge` 의 `LocalSource` 와 같으므로 챌린지 앱은 `--interval-min 60` 으로 띄웁니다.
-- 결과 QR 주소 형식·서명과 운영 방식은 [web/README.md](web/README.md) 참고.
+- `#/board` 스피드런 리더보드 — 목표 모양이 한 시간마다 바뀌고, **바뀌는 순간 순위표가 비워집니다.**
+- `#/battle` 1 대 1 전투 리더보드 — 이긴 쪽이 남긴 셀이 많은 경기가 위로.
+- 챌린지·전투가 끝나면 화면에 **결과 QR** 이 뜹니다. 리더보드 화면의 `[QR 스캔]` 으로 찍으면
+  이름을 적고 순위에 올라갑니다. 주소를 만드는 쪽은 [conway-core/src/qr.rs](conway-core/src/qr.rs),
+  형식·서명과 운영 방식은 [web/README.md](web/README.md) 참고.
 
 ## 외부 웹 서비스 연동 (challenge)
 
@@ -81,6 +84,7 @@ conway-core/
   src/camera.rs       줌/팬, 커서 → 셀 변환
   src/ui.rs           한글 폰트 선택, 버튼/패널/카드, 시작 팝업, 세션 초기화(처음으로·무입력)
   src/presets.rs      내장 프리셋 + assets/patterns/*.rle
+  src/qr.rs           결과 QR (주소 생성·서명·텍스처 굽기)
   src/rle.rs          RLE 파서/변환 (+ CPU 규칙 단위 테스트)
   src/debug.rs        스크린샷/셀프 테스트 (환경 변수로만 활성)
   assets/shaders/     conway_compute.wgsl (1인용) · conway_battle_compute.wgsl (2인용) · conway_edit.wgsl · conway_grid.wgsl
@@ -96,7 +100,7 @@ web/                  부스 웹 (Trunk + wasm, 루트 워크스페이스와 분
   src/main.rs         라우팅·화면·DOM
   src/config.rs       가격·계좌·라운드 주기
   src/round.rs        라운드와 목표 모양 (challenge 의 LocalSource 와 동일 규칙)
-  src/store.rs        리더보드 저장(localStorage) + 결과 서명
+  src/store.rs        리더보드 저장(localStorage, 스피드런·전투) + 결과 서명
   src/scan.rs         카메라 QR 인식 (rqrr)
 ```
 

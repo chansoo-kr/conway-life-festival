@@ -1,0 +1,153 @@
+/* 터미널 화면을 흉내낸 단색 레이아웃. 색은 배경/글자/흐린 글자/강조 넷뿐입니다. */
+:root {
+  --bg: #0d1117;
+  --fg: #c9d1d9;
+  --dim: #7d8590;
+  --line: #21262d;
+  --accent: #7ee787;
+  --warn: #e3b341;
+  --err: #f85149;
+  --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", "D2Coding", Menlo,
+    Consolas, "Noto Sans KR", "Malgun Gothic", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.7 var(--mono);
+  -webkit-text-size-adjust: 100%;
+}
+
+#app {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.1rem 3rem;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------- 머리·꼬리 */
+
+header { border-bottom: 1px solid var(--line); padding-bottom: .7rem; }
+.prompt { margin: 0; }
+.user { color: var(--accent); }
+.host { color: var(--fg); }
+.path { color: var(--dim); }
+.sig { color: var(--dim); margin: 0 .3rem 0 .1rem; }
+
+nav { margin-top: .5rem; display: flex; gap: .4rem; flex-wrap: wrap; }
+nav a { color: var(--dim); padding: .1rem .45rem; border: 1px solid transparent; }
+nav a::before { content: "["; }
+nav a::after { content: "]"; }
+nav a[aria-current="page"] { color: var(--accent); }
+
+footer { margin-top: 2.5rem; border-top: 1px solid var(--line); padding-top: .7rem; }
+
+main { margin-top: 1.6rem; }
+
+/* -------------------------------------------------------------------- 본문 */
+
+h2.cmd {
+  margin: 2.2rem 0 .8rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+h2.cmd::before { content: "$ "; color: var(--dim); }
+main > h2.cmd:first-child { margin-top: 0; }
+
+p { margin: .6rem 0; }
+.dim { color: var(--dim); }
+.ok { color: var(--accent); }
+.err { color: var(--err); }
+.todo { color: var(--warn); }
+.num { font-variant-numeric: tabular-nums; }
+.links { margin-top: .9rem; }
+
+pre.rule {
+  margin: 0;
+  padding: .8rem 1rem;
+  border-left: 2px solid var(--line);
+  color: var(--dim);
+  overflow-x: auto;
+}
+
+/* -------------------------------------------------------------------- 표 */
+
+table { width: 100%; border-collapse: collapse; }
+.list td, .account th, .account td {
+  padding: .5rem .6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.list td.num, .list td.dim { color: var(--dim); }
+.list td.num { text-align: right; white-space: nowrap; color: var(--fg); }
+.list td.rank { color: var(--dim); width: 2.5rem; }
+.list tr:first-child td.rank { color: var(--accent); }
+.account th { color: var(--dim); font-weight: 400; width: 6rem; white-space: nowrap; }
+
+.notes { margin: .9rem 0 0; padding-left: 1.1rem; color: var(--dim); }
+.notes li { margin: .25rem 0; }
+
+/* --------------------------------------------------------- 라운드·목표 모양 */
+
+.round { display: flex; gap: 1.2rem; align-items: flex-start; flex-wrap: wrap; }
+.round > div:not(.shape) { flex: 1 1 14rem; }
+.round p { margin: .2rem 0; }
+.round-name { color: var(--accent); }
+b { font-weight: 600; color: var(--fg); }
+.big { font-size: 1.5rem; line-height: 1.4; }
+
+.shape {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 14px);
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.shape i { width: 14px; height: 14px; background: #161b22; }
+.shape i.on { background: var(--accent); }
+
+/* ------------------------------------------------------------ 버튼·입력·카메라 */
+
+.btn {
+  font: inherit;
+  color: var(--bg);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  padding: .3rem .8rem;
+  cursor: pointer;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn.ghost { color: var(--dim); background: none; border-color: var(--line); }
+.btn.ghost:hover { color: var(--fg); }
+
+.scan { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin: 1.2rem 0; }
+
+#cam {
+  width: 100%;
+  max-width: 22rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  background: #000;
+}
+[hidden] { display: none !important; }
+
+.form { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin: 1.4rem 0 .4rem; }
+.field { display: flex; gap: .5rem; align-items: center; flex: 1 1 15rem; }
+.field label { color: var(--dim); white-space: nowrap; }
+.form input {
+  font: inherit;
+  flex: 1 1 8rem;
+  min-width: 0;
+  color: var(--fg);
+  background: #161b22;
+  border: 1px solid var(--line);
+  padding: .3rem .6rem;
+}
+.form input:focus { outline: none; border-color: var(--accent); }

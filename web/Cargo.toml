@@ -1,0 +1,48 @@
+[package]
+name = "web"
+description = "축제 부스 웹: 구매(계좌 이체) 안내 + 챌린지 리더보드"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+
+# 루트 워크스페이스(Bevy 네이티브 앱)와 분리해서 wasm 전용으로 빌드합니다.
+[workspace]
+
+[dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+wasm-bindgen-futures = "0.4"
+rqrr = { version = "0.11", default-features = false }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlCanvasElement",
+    "HtmlVideoElement",
+    "HtmlMediaElement",
+    "CanvasRenderingContext2d",
+    "ImageData",
+    "Location",
+    "Storage",
+    "Navigator",
+    "Clipboard",
+    "MediaDevices",
+    "MediaStream",
+    "MediaStreamConstraints",
+    "MediaStreamTrack",
+    "MediaTrackConstraints",
+    "Event",
+    "EventTarget",
+    "Performance",
+]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

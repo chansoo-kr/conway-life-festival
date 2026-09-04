@@ -9,6 +9,7 @@ use conway_core::{
     grid::GridSize,
     paint::{PaintPlugin, PaintTool},
     presets::builtin_presets,
+    qr,
     rle::Pattern,
     sim::{
         ConwaySimPlugin, Generation, GridColors, GridSnapshot, InitialView, ResetGrid, SimConfig,
@@ -23,12 +24,19 @@ use conway_core::{
 
 const GRID: UVec2 = UVec2::new(64, 36);
 const LEFT_PANEL_W: f32 = 380.0;
-const DEFAULT_INTERVAL_SECS: u64 = 30 * 60;
+/// 라운드(목표 모양) 교체 주기. 웹 리더보드(`web/src/config.rs`)와 같아야
+/// QR 안의 라운드 번호가 맞습니다.
+const DEFAULT_INTERVAL_SECS: u64 = 60 * 60;
 const MAX_BEST: usize = 5;
 const DEFAULT_RATE: f32 = 1.0;
 const RATES: &[f32] = &[0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0];
 const DEFAULT_LIMIT_SECS: f32 = 60.0;
-const RESULT_SECS: f64 = 8.0;
+/// QR 모듈(점) 한 칸의 픽셀 수. 텍스처를 늘리지 않고 이 크기 그대로 띄웁니다.
+const QR_MODULE_PX: u32 = 6;
+/// 설명 문구를 QR 폭에 맞춰 접기 위한 대략적인 폭.
+const QR_PX: f32 = 300.0;
+/// 결과 QR을 찍고 이름을 적을 시간까지 감안한 결과 화면 유지 시간.
+const RESULT_SECS: f64 = 25.0;
 const TARGET_POOL: &[&str] = &[
     "블록",
     "벌집",
@@ -182,6 +190,13 @@ fn accuracy(drawn: &[IVec2], variants: &[Pattern]) -> f32 {
 #[derive(Component)]
 struct PreviewBox;
 
+/// 결과 QR 묶음(설명 + 코드). 평소에는 `Display::None`.
+#[derive(Component)]
+struct QrBox;
+
+#[derive(Component)]
+struct QrImage;
+
 #[derive(Component)]
 struct StartButton;
 
@@ -255,8 +270,9 @@ fn main() -> AppExit {
             },
             FestivalUiPlugin::new(
                 "실시간 모양 맞추기",
-                "30분마다 바뀌는 목표 모양을, 실시간으로 계속 진화하는 격자 위에 최대한 빨리 만들어 내는 \
-                 타임 어택 모드입니다. 내가 그린 셀도 규칙대로 변하니 진화를 피하거나 이용해야 합니다.",
+                "한 시간마다 바뀌는 목표 모양을, 실시간으로 계속 진화하는 격자 위에 최대한 빨리 만들어 내는 \
+                 타임 어택 모드입니다. 내가 그린 셀도 규칙대로 변하니 진화를 피하거나 이용해야 합니다.\n\
+                 끝나면 결과 QR이 뜹니다. 찍으면 리더보드에 이름을 올릴 수 있습니다.",
             ),
             debug::ScreenshotPlugin {
                 name: "challenge".into(),
@@ -284,6 +300,7 @@ fn main() -> AppExit {
                 tick_limit.run_if(intro_closed),
                 on_session_reset,
                 sync_tool.run_if(intro_closed),
+                sync_qr,
                 update_hud,
             )
                 .chain()
@@ -325,6 +342,29 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, challenge: Res<Challenge>
                 BorderColor::all(LINE),
             ));
             preview.with_children(|p| build_preview(p, &preview_pattern));
+
+            side.spawn((
+                QrBox,
+                Node {
+                    display: Display::None,
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::FlexStart,
+                    row_gap: px(8),
+                    ..default()
+                },
+            ))
+            .with_children(|qr_box| {
+                qr_box.spawn(title_text(&font, "결과 QR", 15.0, MUTED_COLOR));
+                qr_box.spawn((QrImage, ImageNode::default()));
+                qr_box.spawn((
+                    hud_text(&font, "찍으면 리더보드에 이름을 올릴 수 있습니다.", 14.0, MUTED_COLOR),
+                    TextLayout::linebreak(LineBreak::WordOrCharacter),
+                    Node {
+                        max_width: px(QR_PX),
+                        ..default()
+                    },
+                ));
+            });
 
             side.spawn((hud_text(&font, "", 40.0, TEXT_COLOR), Hud::Timer));
             side.spawn((hud_text(&font, "", 16.0, ACCENT), Hud::Sim));
@@ -628,6 +668,54 @@ fn on_session_reset(
     reset.write(ResetGrid::empty(&grid));
 }
 
+/// 결과가 나오면 그 결과를 담은 주소로 QR을 굽고, 목표 미리보기 자리에 대신 띄웁니다.
+fn sync_qr(
+    challenge: Res<Challenge>,
+    mut images: ResMut<Assets<Image>>,
+    mut qr_node: Query<&mut ImageNode, With<QrImage>>,
+    mut boxes: Query<(&mut Node, Has<QrBox>), Or<(With<QrBox>, With<PreviewBox>)>>,
+    mut shown: Local<Option<String>>,
+) {
+    let url = match challenge.phase {
+        Phase::Cleared { time, .. } => Some(qr::challenge_url(
+            challenge.round.id,
+            true,
+            1.0,
+            time,
+        )),
+        Phase::TimeUp { .. } => Some(qr::challenge_url(
+            challenge.round.id,
+            false,
+            challenge.best_accuracy,
+            challenge.limit,
+        )),
+        _ => None,
+    };
+    if *shown == url {
+        return;
+    }
+    if let Some(url) = &url
+        && let Some(image) = qr::qr_image(url, QR_MODULE_PX, 2)
+    {
+        let handle = images.add(image);
+        for mut node in &mut qr_node {
+            node.image = handle.clone();
+        }
+    }
+    let showing_qr = url.is_some();
+    for (mut node, is_qr) in &mut boxes {
+        let want = if is_qr == showing_qr {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != want {
+            node.display = want;
+        }
+    }
+    *shown = url;
+}
+
 fn sync_tool(challenge: Res<Challenge>, mut tool: ResMut<PaintTool>) {
     let enabled = matches!(challenge.phase, Phase::Playing { .. });
     if tool.enabled != enabled {
@@ -665,10 +753,10 @@ fn update_hud(
                 Phase::Cleared {
                     time, generation, ..
                 } => format!(
-                    "성공!  기록 {time:.2}초 (세대 {generation})\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기)."
+                    "성공!  기록 {time:.2}초 (세대 {generation})\n왼쪽 QR을 찍으면 리더보드에 이름을 올릴 수 있습니다.\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기)."
                 ),
                 Phase::TimeUp { .. } => format!(
-                    "시간 초과!  제한 시간 {:.0}초 안에 완성하지 못했습니다.\n최고 정확도 {:.0}%\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기).",
+                    "시간 초과!  제한 시간 {:.0}초 안에 완성하지 못했습니다.\n최고 정확도 {:.0}%\n왼쪽 QR을 찍으면 리더보드에 이름을 올릴 수 있습니다.\n잠시 후 처음 화면으로 돌아갑니다 (Space: 바로 돌아가기).",
                     challenge.limit,
                     challenge.best_accuracy * 100.0
                 ),

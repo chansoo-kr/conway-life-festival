@@ -7,6 +7,7 @@ use conway_core::{
     grid::{CpuGrid, GridSize, PendingEdits},
     paint::{PaintMode, PaintPlugin, PaintRequest, PaintSet, PaintTool},
     presets::builtin,
+    qr,
     rle::Pattern,
     sim::{
         ConwaySimPlugin, Generation, GridColors, GridSnapshot, GridView, InitialView, ResetGrid,
@@ -19,7 +20,10 @@ use conway_core::{
     },
 };
 
-const RESULT_SECS: f64 = 15.0;
+/// 결과 QR을 찍고 이름을 적을 시간까지 감안한 결과 화면 유지 시간.
+const RESULT_SECS: f64 = 30.0;
+/// QR 모듈(점) 한 칸의 픽셀 수. 텍스처를 늘리지 않고 이 크기 그대로 띄웁니다.
+const QR_MODULE_PX: u32 = 6;
 
 const GRID: UVec2 = UVec2::new(160, 90);
 const TOP_BAR_H: f32 = 64.0;
@@ -115,6 +119,9 @@ struct TerritoryTint(u32);
 #[derive(Component)]
 struct ResultPanel;
 
+#[derive(Component)]
+struct QrImage;
+
 #[derive(Component, Clone, Copy)]
 enum Hud {
     Phase,
@@ -203,6 +210,7 @@ fn main() -> AppExit {
                 tick_phase,
                 sync_tool,
                 update_territory,
+                sync_qr,
                 update_hud,
             )
                 .chain()
@@ -406,6 +414,13 @@ fn setup_ui(mut commands: Commands, font: Res<UiFont>, arsenal: Res<Arsenal>) {
                     hud_text(&font, "", 20.0, TEXT_COLOR),
                     TextLayout::justify(Justify::Center),
                     Hud::ResultDetail,
+                ));
+                card.spawn((QrImage, ImageNode::default()));
+                card.spawn(hud_text(
+                    &font,
+                    "QR을 찍으면 리더보드에 이름을 올릴 수 있습니다.",
+                    16.0,
+                    MUTED_COLOR,
                 ));
                 card.spawn(button_with(
                     &font,
@@ -820,6 +835,34 @@ fn update_territory(battle: Res<Battle>, mut tints: Query<(&TerritoryTint, &mut 
 }
 
 #[allow(clippy::too_many_arguments)]
+/// 경기가 끝나면 결과를 담은 주소로 QR을 굽습니다. 결과 카드가 열릴 때 같이 보입니다.
+fn sync_qr(
+    battle: Res<Battle>,
+    generation: Res<Generation>,
+    mut images: ResMut<Assets<Image>>,
+    mut qr_node: Query<&mut ImageNode, With<QrImage>>,
+    mut shown: Local<Option<String>>,
+) {
+    let url = match battle.phase {
+        Phase::Result { winner, counts, .. } => {
+            Some(qr::battle_url(winner, counts, generation.0))
+        }
+        _ => None,
+    };
+    if *shown == url {
+        return;
+    }
+    if let Some(url) = &url
+        && let Some(image) = qr::qr_image(url, QR_MODULE_PX, 2)
+    {
+        let handle = images.add(image);
+        for mut node in &mut qr_node {
+            node.image = handle.clone();
+        }
+    }
+    *shown = url;
+}
+
 fn update_hud(
     time: Res<Time>,
     generation: Res<Generation>,

@@ -7,3 +7,5 @@ license.workspace = true
 
 [dependencies]
 bevy.workspace = true
+# QR 결과 코드 굽기 (이미지/SVG 렌더러는 안 씀 — 텍스처는 직접 만듭니다)
+qrcode = { version = "0.14", default-features = false }
