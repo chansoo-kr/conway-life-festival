@@ -1,0 +1,20 @@
+name = "conway-board"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# 커스텀 도메인. Cloudflare 에 chansoo.kr 존이 있어야 DNS 레코드가 자동으로 생깁니다.
+routes = [{ pattern = "sw.chansoo.kr", custom_domain = true }]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "conway-board"
+# `wrangler d1 create conway-board` 가 찍어 주는 값으로 채웁니다.
+database_id = ""
+
+[vars]
+# 리더보드를 띄우는 곳. 쉼표로 여러 개 (로컬 확인용 주소 포함).
+ALLOW_ORIGIN = "https://sh.chansoo.kr,http://localhost:8080,http://127.0.0.1:8080"
+
+# 시크릿(코드에 두지 않습니다):
+#   wrangler secret put ADMIN_TOKEN     '기록 지우기' 버튼에서 입력할 값
+#   wrangler secret put SUBMIT_SECRET   생략하면 index.js 의 DEFAULT_SECRET 을 씁니다

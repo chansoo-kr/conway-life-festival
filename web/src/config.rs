@@ -6,6 +6,12 @@
 /// `cargo run --release -p challenge -- --interval-min 60`
 pub const ROUND_INTERVAL_SECS: u64 = 60 * 60;
 
+/// 리더보드 서버 주소 (끝에 `/` 없이). `worker/` 의 Cloudflare Worker 가 여기에 올라갑니다.
+///
+/// 비워 두면 서버 없이 **이 기기의 `localStorage`** 에만 기록이 쌓입니다(예전 방식).
+/// 서버 없이 화면만 확인할 때 쓰세요.
+pub const API_BASE: &str = "https://sw.chansoo.kr";
+
 /// QR 안의 결과값이 손대지 않은 값인지 확인할 때 쓰는 값.
 /// `conway-core/src/qr.rs` 의 `SUBMIT_SECRET` 과 같아야 합니다.
 pub const SUBMIT_SECRET: &str = "conway-life-festival";
